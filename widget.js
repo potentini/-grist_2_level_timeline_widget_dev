@@ -94,6 +94,8 @@
       if (s.expandedParents && typeof s.expandedParents === "object") {
         expandedParents = s.expandedParents;
       }
+      if (s.visibleStart) visibleStart = normalizeDate(s.visibleStart);
+      if (s.visibleEnd) visibleEnd = normalizeDate(s.visibleEnd);
     } catch (e) {
       console.warn("Impossible de charger l’état persistant :", e);
     }
@@ -106,7 +108,9 @@
         colorField,
         labelsVisible,
         childrenOnOneRow,
-        expandedParents
+        expandedParents,
+        visibleStart: visibleStart ? toGristDateString(visibleStart) : null,
+        visibleEnd: visibleEnd ? toGristDateString(visibleEnd) : null
       };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
@@ -404,6 +408,10 @@
     leafTasks = [];
     const groupsMap = new Map();
 
+    records.forEach((r, idx) => {
+      r.sourceIndex = idx;
+    });
+
     for (const r of records) {
       if (r.kind === "hierarchical") {
         const key = r.parentKey || "(Sans parent)";
@@ -467,7 +475,7 @@
         const ao = a.order != null ? a.order : Infinity;
         const bo = b.order != null ? b.order : Infinity;
         if (ao !== bo) return ao - bo;
-        return a.childLabel.localeCompare(b.childLabel, "fr");
+        return a.sourceIndex - b.sourceIndex;
       });
 
       parentGroups.push(g);
@@ -477,15 +485,22 @@
       const ao = a.order != null ? a.order : Infinity;
       const bo = b.order != null ? b.order : Infinity;
       if (ao !== bo) return ao - bo;
-      return a.parentLabel.localeCompare(b.parentLabel, "fr");
+      const ai = gFirstIndex(a);
+      const bi = gFirstIndex(b);
+      return ai - bi;
     });
 
     leafTasks.sort((a, b) => {
       const ao = a.order != null ? a.order : Infinity;
       const bo = b.order != null ? b.order : Infinity;
       if (ao !== bo) return ao - bo;
-      return a.childLabel.localeCompare(b.childLabel, "fr");
+      return a.sourceIndex - b.sourceIndex;
     });
+  }
+
+  function gFirstIndex(group) {
+    if (!group || !Array.isArray(group.children) || !group.children.length) return Infinity;
+    return group.children[0].sourceIndex ?? Infinity;
   }
 
   function computeGlobalRange(records) {
@@ -608,6 +623,7 @@
 
     visibleStart = start;
     visibleEnd = end;
+    saveState();
     render();
   }
 
@@ -631,8 +647,42 @@
   nextBtn.addEventListener("click", () => shiftVisibleRange("right"));
   todayBtn.addEventListener("click", () => {
     setVisibleRangeForZoom(true);
+    saveState();
     render();
   });
+
+  function keepOrRecomputeVisibleRange() {
+    if (!visibleStart || !visibleEnd) {
+      setVisibleRangeForZoom(false);
+      return;
+    }
+    const { minAllowed, maxAllowed } = getNavigationBounds();
+    if (!minAllowed || !maxAllowed) {
+      setVisibleRangeForZoom(false);
+      return;
+    }
+
+    const span = diffInDays(visibleStart, visibleEnd) + 1;
+    let start = new Date(visibleStart.getTime());
+    let end = new Date(visibleEnd.getTime());
+
+    if (start < minAllowed) {
+      start = new Date(minAllowed.getTime());
+      end = addDays(start, span - 1);
+    }
+    if (end > maxAllowed) {
+      end = new Date(maxAllowed.getTime());
+      start = addDays(end, -span + 1);
+    }
+
+    if (start > end) {
+      setVisibleRangeForZoom(false);
+      return;
+    }
+
+    visibleStart = start;
+    visibleEnd = end;
+  }
 
   toggleSidebarBtn.addEventListener("click", () => {
     const collapsed = ganttContainer.classList.toggle("sidebar-collapsed");
@@ -1933,7 +1983,8 @@
     const range = computeGlobalRange(allRecords);
     globalMinDate = range.min;
     globalMaxDate = range.max;
-    setVisibleRangeForZoom(false);
+    keepOrRecomputeVisibleRange();
+    saveState();
 
     updateZoomButtons();
     toggleLabelsBtn.textContent = labelsVisible ? "Masquer labels" : "Afficher labels";
