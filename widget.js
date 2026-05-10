@@ -365,49 +365,6 @@
     return { label: String(value), rowId: null, tableId: null };
   }
 
-  
-  function normalizeKeyLabel(v) {
-    return String(v || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
-  }
-
-  function pickColumnIdByCandidates(colIds, candidates) {
-    const norm = new Map(colIds.map((c) => [normalizeKeyLabel(c), c]));
-    for (const cand of candidates) {
-      const hit = norm.get(normalizeKeyLabel(cand));
-      if (hit) return hit;
-    }
-    return null;
-  }
-
-  async function loadParentDateMap(records) {
-    const parentTableId = records.find((r) => r && r.parentTableId)?.parentTableId;
-    if (!parentTableId) return new Map();
-
-    try {
-      const table = await grist.docApi.fetchTable(parentTableId);
-      if (!table || typeof table !== "object") return new Map();
-      const colIds = Object.keys(table).filter((k) => k !== "id" && k !== "manualSort");
-      const startCol = pickColumnIdByCandidates(colIds, ["Date début parent", "Date debut parent", "Parent start", "Start parent"]);
-      const endCol = pickColumnIdByCandidates(colIds, ["Date fin parent", "Parent end", "End parent"]);
-      if (!startCol && !endCol) return new Map();
-
-      const ids = Array.isArray(table.id) ? table.id : [];
-      const starts = startCol ? (Array.isArray(table[startCol]) ? table[startCol] : []) : [];
-      const ends = endCol ? (Array.isArray(table[endCol]) ? table[endCol] : []) : [];
-      const out = new Map();
-      for (let i = 0; i < ids.length; i++) {
-        out.set(Number(ids[i]), {
-          start: normalizeDate(starts[i]),
-          end: normalizeDate(ends[i])
-        });
-      }
-      return out;
-    } catch (e) {
-      console.warn("Chargement des dates parent liées impossible", e);
-      return new Map();
-    }
-  }
-
   function buildLogicalRecords(records) {
     const result = [];
 
@@ -2050,14 +2007,14 @@
   grist.ready({
     requiredAccess: "full",
     columns: [
-      { name: "parent", title: "Élément parent", optional: true },
-      { name: "child", title: "Élément enfant", optional: true },
+      { name: "parent", title: "Nom parent", optional: true },
+      { name: "child", title: "Nom enfant", optional: true },
       { name: "start", title: "Date début enfant", optional: true, type: "Date,DateTime" },
       { name: "end", title: "Date fin enfant", optional: true, type: "Date,DateTime" },
       { name: "parentStart", title: "Date début parent", optional: true, type: "Date,DateTime" },
       { name: "parentEnd", title: "Date fin parent", optional: true, type: "Date,DateTime" },
       { name: "priority", title: "Priorité enfant", optional: true },
-      { name: "status", title: "Statut enfant", optional: true },
+      { name: "status", title: "Statut", optional: true },
       { name: "respPol", title: "Référent politique", optional: true },
       { name: "respOp", title: "Référent opérationnel", optional: true },
       { name: "respChild", title: "Responsable enfant", optional: true },
