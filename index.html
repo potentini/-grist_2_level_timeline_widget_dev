@@ -72,6 +72,21 @@
         color: var(--text-muted);
         margin-top: 2px;
       }
+      .debug-panel {
+        margin-top: 4px;
+        padding: 6px 8px;
+        border: 1px dashed var(--border);
+        border-radius: 8px;
+        background: #f8fafc;
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        display: grid;
+        gap: 4px;
+      }
+      .debug-line strong {
+        color: var(--text);
+        margin-right: 4px;
+      }
 
       .header-actions {
         display: flex;
@@ -572,6 +587,11 @@
         </h1>
         <div id="mappingInfo" class="mapping-info">
           Colonnes mappées : en attente…
+        </div>
+        <div id="debugPanel" class="debug-panel">
+          <div class="debug-line"><strong>Debug</strong><span id="debugStatus">Initialisation…</span></div>
+          <div class="debug-line"><strong>Sync</strong><span id="debugSyncMode">selectedTable.update</span></div>
+          <div class="debug-line"><strong>Dernière action</strong><span id="debugAction">aucune</span></div>
         </div>
       </div>
 
