@@ -31,6 +31,7 @@
 
   let labelsVisible = true;
   let childrenOnOneRow = false;
+  let allowTimelineDateEdit = false;
 
   let currentTableId = null;
   let currentMappingsOk = false;
@@ -62,6 +63,7 @@
   const toggleSidebarBtn = document.getElementById("toggleSidebarBtn");
   const toggleLabelsBtn = document.getElementById("toggleLabelsBtn");
   const groupChildrenBtn = document.getElementById("groupChildrenBtn");
+  const toggleDateEditBtn = document.getElementById("toggleDateEditBtn");
   const ganttContainer = document.getElementById("ganttContainer");
 
   const dragState = {
@@ -91,6 +93,7 @@
       if (s.colorField) colorField = s.colorField;
       if (typeof s.labelsVisible === "boolean") labelsVisible = s.labelsVisible;
       if (typeof s.childrenOnOneRow === "boolean") childrenOnOneRow = s.childrenOnOneRow;
+      if (typeof s.allowTimelineDateEdit === "boolean") allowTimelineDateEdit = s.allowTimelineDateEdit;
       if (s.expandedParents && typeof s.expandedParents === "object") {
         expandedParents = s.expandedParents;
       }
@@ -108,6 +111,7 @@
         colorField,
         labelsVisible,
         childrenOnOneRow,
+        allowTimelineDateEdit,
         expandedParents,
         visibleStart: visibleStart ? toGristDateString(visibleStart) : null,
         visibleEnd: visibleEnd ? toGristDateString(visibleEnd) : null
@@ -306,11 +310,11 @@
   function initColorFieldSelect() {
     colorFieldSelect.innerHTML = "";
     const labels = {
-      parent: "Parent",
-      child: "Enfant",
-      start: "Date début",
-      end: "Date fin",
-      priority: "Priorité",
+      parent: "Nom parent",
+      child: "Nom enfant",
+      start: "Date début enfant",
+      end: "Date fin enfant",
+      priority: "Priorité enfant",
       status: "Statut",
       respPol: "Référent politique",
       respOp: "Référent opérationnel",
@@ -694,6 +698,19 @@
     toggleLabelsBtn.textContent = labelsVisible ? "Masquer labels" : "Afficher labels";
     saveState();
     render();
+  });
+
+  function refreshDateEditButton() {
+    toggleDateEditBtn.textContent = allowTimelineDateEdit
+      ? "Dates: édition autorisée"
+      : "Dates: édition bloquée";
+    toggleDateEditBtn.classList.toggle("active", allowTimelineDateEdit);
+  }
+
+  toggleDateEditBtn.addEventListener("click", () => {
+    allowTimelineDateEdit = !allowTimelineDateEdit;
+    refreshDateEditButton();
+    saveState();
   });
 
   groupChildrenBtn.addEventListener("click", () => {
@@ -1672,6 +1689,7 @@
   function attachBarDrag(bar) {
     bar.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
+      if (!allowTimelineDateEdit) return;
       e.preventDefault();
       hideTooltip();
 
@@ -1737,6 +1755,7 @@
 
     m.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
+      if (!allowTimelineDateEdit) return;
       e.preventDefault();
       hideTooltip();
 
@@ -1931,6 +1950,8 @@
     if (!visibleStart || !visibleEnd || !allRecords.length) return;
     render();
   });
+
+  refreshDateEditButton();
 
   grist.ready({
     requiredAccess: "full",
