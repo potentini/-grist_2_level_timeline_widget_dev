@@ -1994,14 +1994,14 @@
   grist.ready({
     requiredAccess: "full",
     columns: [
-      { name: "parent", title: "Élément parent", optional: true },
-      { name: "child", title: "Élément enfant", optional: true },
+      { name: "parent", title: "Nom parent", optional: true },
+      { name: "child", title: "Nom enfant", optional: true },
       { name: "start", title: "Date début enfant", optional: true, type: "Date,DateTime" },
       { name: "end", title: "Date fin enfant", optional: true, type: "Date,DateTime" },
       { name: "parentStart", title: "Date début parent", optional: true, type: "Date,DateTime" },
       { name: "parentEnd", title: "Date fin parent", optional: true, type: "Date,DateTime" },
       { name: "priority", title: "Priorité enfant", optional: true },
-      { name: "status", title: "Statut enfant", optional: true },
+      { name: "status", title: "Statut", optional: true },
       { name: "respPol", title: "Référent politique", optional: true },
       { name: "respOp", title: "Référent opérationnel", optional: true },
       { name: "respChild", title: "Responsable enfant", optional: true },
