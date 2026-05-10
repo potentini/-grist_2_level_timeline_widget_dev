@@ -34,6 +34,9 @@
   let allowTimelineDateEdit = false;
 
   let currentTableId = null;
+  let currentParentTableId = null;
+  let currentParentStartColId = null;
+  let currentParentEndColId = null;
   let currentMappingsOk = false;
   let latestMappings = null;
 
@@ -426,6 +429,72 @@
     }
 
     return result;
+  }
+
+  async function loadParentDateMap(records) {
+    const out = new Map();
+    if (!Array.isArray(records) || !records.length) return out;
+
+    const parentTableId =
+      records.find((r) => r && r.parentTableId)?.parentTableId || null;
+    if (!parentTableId) {
+      currentParentTableId = null;
+      currentParentStartColId = null;
+      currentParentEndColId = null;
+      return out;
+    }
+
+    try {
+      const table = await grist.docApi.fetchTable(parentTableId);
+      const colIds = table && table[0] ? Object.keys(table[0]) : [];
+      if (!colIds.length) return out;
+
+      const byNorm = new Map(colIds.map((c) => [String(c).toLowerCase().trim(), c]));
+      const pickCol = (candidates) => {
+        for (const c of candidates) {
+          const k = c.toLowerCase().trim();
+          if (byNorm.has(k)) return byNorm.get(k);
+        }
+        return null;
+      };
+
+      const startColId = pickCol([
+        "Date début parent",
+        "Date debut parent",
+        "parentStart",
+        "start",
+        "date_debut",
+        "date_debut_parent"
+      ]);
+      const endColId = pickCol([
+        "Date fin parent",
+        "parentEnd",
+        "end",
+        "date_fin",
+        "date_fin_parent"
+      ]);
+
+      currentParentTableId = parentTableId;
+      currentParentStartColId = startColId;
+      currentParentEndColId = endColId;
+      if (!startColId && !endColId) return out;
+
+      for (const row of table) {
+        const rowId = Number(row.id);
+        if (!Number.isFinite(rowId)) continue;
+        out.set(rowId, {
+          start: normalizeDate(startColId ? row[startColId] : null),
+          end: normalizeDate(endColId ? row[endColId] : null)
+        });
+      }
+    } catch (err) {
+      console.warn("Impossible de charger les dates parent depuis la table référencée", err);
+      currentParentTableId = parentTableId;
+      currentParentStartColId = null;
+      currentParentEndColId = null;
+    }
+
+    return out;
   }
 
   async function enrichRecordsWithParentDates(records) {
@@ -1255,13 +1324,17 @@
         ? Object.keys(latestMappings).length
         : 0;
 
+    const parentInfo = currentParentTableId
+      ? ` | table parent(ref)=${currentParentTableId}, début=${currentParentStartColId || "auto introuvable"}, fin=${currentParentEndColId || "auto introuvable"}`
+      : "";
     mappingInfoEl.textContent =
       "Mapping actif : " +
       (currentMappingsOk ? "oui" : "non") +
-      ", table = " +
+      ", table enfant = " +
       (currentTableId || "inconnue") +
       ", mappings reçus = " +
-      mappedCols;
+      mappedCols +
+      parentInfo;
   }
 
   function buildBackPayload(aliasValues) {
