@@ -382,6 +382,37 @@
     return { label: String(value), rowId: null, tableId: null };
   }
 
+
+  function getMappedColId(alias) {
+    if (!latestMappings || !alias) return null;
+    if (latestMappings.columns && latestMappings.columns[alias]) return String(latestMappings.columns[alias]);
+    if (latestMappings[alias]) return String(latestMappings[alias]);
+    return null;
+  }
+
+  async function resolveParentTableIdFromMapping() {
+    try {
+      const parentColId = getMappedColId("parent");
+      const tableId = currentTableId || await grist.selectedTable.getTableId();
+      if (!parentColId || !tableId) return null;
+
+      const tables = await grist.docApi.fetchTable("_grist_Tables");
+      const tableMeta = (tables || []).find((r) => String(r.tableId) === String(tableId));
+      const tableRef = tableMeta ? Number(tableMeta.id) : null;
+      if (!Number.isFinite(tableRef)) return null;
+
+      const cols = await grist.docApi.fetchTable("_grist_Tables_column");
+      const colMeta = (cols || []).find((c) => Number(c.parentId) === tableRef && String(c.colId) === String(parentColId));
+      if (!colMeta || !colMeta.type) return null;
+
+      const m = String(colMeta.type).match(/^RefList?:\s*(.+)$/i);
+      return m && m[1] ? m[1].trim() : null;
+    } catch (err) {
+      console.warn("Impossible de déduire la table cible depuis le mapping parent", err);
+      return null;
+    }
+  }
+
   function buildLogicalRecords(records) {
     const result = [];
 
@@ -449,8 +480,9 @@
     const out = new Map();
     if (!Array.isArray(records) || !records.length) return out;
 
-    const parentTableId =
+    const parentTableIdFromData =
       records.find((r) => r && r.parentTableId)?.parentTableId || null;
+    const parentTableId = parentTableIdFromData || await resolveParentTableIdFromMapping();
     if (!parentTableId) {
       currentParentTableId = null;
       currentParentStartColId = null;
