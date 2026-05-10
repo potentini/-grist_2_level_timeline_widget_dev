@@ -31,6 +31,7 @@
 
   let labelsVisible = true;
   let childrenOnOneRow = false;
+  let allowTimelineDateEdit = false;
 
   let currentTableId = null;
   let currentMappingsOk = false;
@@ -62,6 +63,7 @@
   const toggleSidebarBtn = document.getElementById("toggleSidebarBtn");
   const toggleLabelsBtn = document.getElementById("toggleLabelsBtn");
   const groupChildrenBtn = document.getElementById("groupChildrenBtn");
+  const toggleDateEditBtn = document.getElementById("toggleDateEditBtn");
   const ganttContainer = document.getElementById("ganttContainer");
 
   const dragState = {
@@ -91,6 +93,7 @@
       if (s.colorField) colorField = s.colorField;
       if (typeof s.labelsVisible === "boolean") labelsVisible = s.labelsVisible;
       if (typeof s.childrenOnOneRow === "boolean") childrenOnOneRow = s.childrenOnOneRow;
+      if (typeof s.allowTimelineDateEdit === "boolean") allowTimelineDateEdit = s.allowTimelineDateEdit;
       if (s.expandedParents && typeof s.expandedParents === "object") {
         expandedParents = s.expandedParents;
       }
@@ -108,6 +111,7 @@
         colorField,
         labelsVisible,
         childrenOnOneRow,
+        allowTimelineDateEdit,
         expandedParents,
         visibleStart: visibleStart ? toGristDateString(visibleStart) : null,
         visibleEnd: visibleEnd ? toGristDateString(visibleEnd) : null
@@ -306,11 +310,11 @@
   function initColorFieldSelect() {
     colorFieldSelect.innerHTML = "";
     const labels = {
-      parent: "Parent",
-      child: "Enfant",
-      start: "Date début",
-      end: "Date fin",
-      priority: "Priorité",
+      parent: "Nom parent",
+      child: "Nom enfant",
+      start: "Date début enfant",
+      end: "Date fin enfant",
+      priority: "Priorité enfant",
       status: "Statut",
       respPol: "Référent politique",
       respOp: "Référent opérationnel",
@@ -343,6 +347,24 @@
     return out;
   }
 
+  
+  function parseRefValue(value) {
+    if (value == null) return { label: "", rowId: null, tableId: null };
+    if (typeof value === "object") {
+      if (Array.isArray(value)) {
+        const rowId = Number(value[0]);
+        const label = value[1] != null ? String(value[1]) : String(value[0] ?? "");
+        const tableId = value[2] != null ? String(value[2]) : null;
+        return { label, rowId: Number.isFinite(rowId) ? rowId : null, tableId };
+      }
+      const rowId = Number(value.id ?? value.rowId ?? value.Ref ?? value.ref);
+      const label = value.label ?? value.name ?? value.displayValue ?? value.value ?? value.title ?? value.id ?? "";
+      const tableId = value.tableId ?? value.table ?? value.tableName ?? null;
+      return { label: String(label || ""), rowId: Number.isFinite(rowId) ? rowId : null, tableId: tableId ? String(tableId) : null };
+    }
+    return { label: String(value), rowId: null, tableId: null };
+  }
+
   function buildLogicalRecords(records) {
     const result = [];
 
@@ -356,7 +378,8 @@
         continue;
       }
 
-      const parentVal = (mapped.parent || "").toString().trim();
+      const parentRef = parseRefValue(mapped.parent);
+      const parentVal = (parentRef.label || "").toString().trim();
       const childVal = (mapped.child || "").toString().trim();
       const startDate = normalizeDate(mapped.start);
       const endDate = normalizeDate(mapped.end);
@@ -381,7 +404,9 @@
       result.push({
         rowId: raw.id || raw.Id || raw.ID,
         kind,
-        parentKey: parentVal || "",
+        parentKey: (parentRef.rowId != null ? `ref:${parentRef.rowId}` : parentVal) || "",
+        parentRowId: parentRef.rowId,
+        parentTableId: parentRef.tableId,
         parentLabel,
         childLabel,
         startDate,
@@ -419,6 +444,8 @@
           groupsMap.set(key, {
             parentKey: key,
             parentLabel: r.parentLabel || key || "(Sans parent)",
+            parentRowId: r.parentRowId || null,
+            parentTableId: r.parentTableId || null,
             children: [],
             aggStart: null,
             aggEnd: null,
@@ -694,6 +721,19 @@
     toggleLabelsBtn.textContent = labelsVisible ? "Masquer labels" : "Afficher labels";
     saveState();
     render();
+  });
+
+  function refreshDateEditButton() {
+    toggleDateEditBtn.textContent = allowTimelineDateEdit
+      ? "Dates: édition autorisée"
+      : "Dates: édition bloquée";
+    toggleDateEditBtn.classList.toggle("active", allowTimelineDateEdit);
+  }
+
+  toggleDateEditBtn.addEventListener("click", () => {
+    allowTimelineDateEdit = !allowTimelineDateEdit;
+    refreshDateEditButton();
+    saveState();
   });
 
   groupChildrenBtn.addEventListener("click", () => {
@@ -1268,7 +1308,22 @@
   }
 
   async function moveParentGroup(parentKey, originalChildren, deltaDays) {
-    if (!parentKey || !originalChildren || !deltaDays) return;
+    if (!parentKey || !deltaDays) return;
+
+    const grp = parentGroups.find((g) => g.parentKey === parentKey);
+    if (grp && grp.parentRowId != null && grp.parentTableId && grp.explicitParentStart && grp.explicitParentEnd) {
+      const payload = { id: grp.parentRowId, fields: {} };
+      payload.fields["Date début parent"] = toGristDateString(addDays(grp.explicitParentStart, deltaDays));
+      payload.fields["Date fin parent"] = toGristDateString(addDays(grp.explicitParentEnd, deltaDays));
+      try {
+        await grist.docApi.applyUserActions([["UpdateRecord", grp.parentTableId, grp.parentRowId, payload.fields]]);
+        return;
+      } catch (err) {
+        console.warn("Mise à jour parent liée impossible, fallback enfants", err);
+      }
+    }
+
+    if (!originalChildren) return;
 
     const updates = [];
     for (const c of originalChildren) {
@@ -1672,6 +1727,7 @@
   function attachBarDrag(bar) {
     bar.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
+      if (!allowTimelineDateEdit) return;
       e.preventDefault();
       hideTooltip();
 
@@ -1737,6 +1793,7 @@
 
     m.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
+      if (!allowTimelineDateEdit) return;
       e.preventDefault();
       hideTooltip();
 
@@ -1932,17 +1989,19 @@
     render();
   });
 
+  refreshDateEditButton();
+
   grist.ready({
     requiredAccess: "full",
     columns: [
       { name: "parent", title: "Élément parent", optional: true },
       { name: "child", title: "Élément enfant", optional: true },
-      { name: "start", title: "Date de début", optional: true, type: "Date,DateTime" },
-      { name: "end", title: "Date de fin", optional: true, type: "Date,DateTime" },
+      { name: "start", title: "Date début enfant", optional: true, type: "Date,DateTime" },
+      { name: "end", title: "Date fin enfant", optional: true, type: "Date,DateTime" },
       { name: "parentStart", title: "Date début parent", optional: true, type: "Date,DateTime" },
       { name: "parentEnd", title: "Date fin parent", optional: true, type: "Date,DateTime" },
-      { name: "priority", title: "Priorité", optional: true },
-      { name: "status", title: "Statut", optional: true },
+      { name: "priority", title: "Priorité enfant", optional: true },
+      { name: "status", title: "Statut enfant", optional: true },
       { name: "respPol", title: "Référent politique", optional: true },
       { name: "respOp", title: "Référent opérationnel", optional: true },
       { name: "respChild", title: "Responsable enfant", optional: true },
