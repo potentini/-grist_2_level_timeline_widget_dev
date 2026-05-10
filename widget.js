@@ -43,6 +43,9 @@
   let latestMappings = null;
 
   const mappingInfoEl = document.getElementById("mappingInfo");
+  const debugStatusEl = document.getElementById("debugStatus");
+  const debugSyncModeEl = document.getElementById("debugSyncMode");
+  const debugActionEl = document.getElementById("debugAction");
   const taskListEl = document.getElementById("taskList");
   const timelineGridEl = document.getElementById("timelineGrid");
   const yearsRowEl = document.getElementById("yearsRow");
@@ -88,6 +91,20 @@
 
   let sideDragInfo = null;
   const STORAGE_KEY = "grist_gantt_state_v12";
+  let lastSyncMode = "selectedTable.update";
+
+  function setDebugStatus(message) {
+    if (debugStatusEl) debugStatusEl.textContent = message;
+  }
+
+  function setDebugAction(message) {
+    if (debugActionEl) debugActionEl.textContent = message;
+  }
+
+  function setDebugSyncMode(message) {
+    lastSyncMode = message;
+    if (debugSyncModeEl) debugSyncModeEl.textContent = message;
+  }
 
   function loadState() {
     try {
@@ -1435,7 +1452,23 @@
       return;
     }
 
-    await grist.selectedTable.update(cleaned);
+    try {
+      await grist.selectedTable.update(cleaned);
+      setDebugSyncMode("selectedTable.update");
+      setDebugAction(`Update ${cleaned.length} ligne(s) via selectedTable.update`);
+    } catch (err) {
+      console.warn("[GANTT DEBUG] selectedTable.update a échoué, tentative alternative applyUserActions", err);
+      setDebugStatus("Fallback applyUserActions en cours…");
+
+      const actions = [];
+      for (const rec of cleaned) {
+        actions.push(["UpdateRecord", currentTableId, rec.id, rec.fields]);
+      }
+
+      await grist.docApi.applyUserActions(actions);
+      setDebugSyncMode("docApi.applyUserActions (fallback)");
+      setDebugAction(`Fallback appliqué sur ${cleaned.length} ligne(s)`);
+    }
   }
 
   async function updateChildDates(rowId, startDate, endDate) {
@@ -2159,6 +2192,7 @@
   });
 
   grist.onRecords(async function (records, mappings) {
+    setDebugStatus(`onRecords reçu: ${records ? records.length : 0} ligne(s)`);
     latestMappings = mappings || null;
 
     if (!records || !records.length) {
@@ -2178,8 +2212,10 @@
     try {
       const probe = grist.mapColumnNames(records[0], { mappings: latestMappings });
       currentMappingsOk = !!probe;
+      setDebugStatus("Mapping OK");
     } catch (e) {
       currentMappingsOk = false;
+      setDebugStatus("Mapping KO");
     }
 
     await refreshTableInfo();
