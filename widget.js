@@ -37,6 +37,8 @@
   let currentParentTableId = null;
   let currentParentStartColId = null;
   let currentParentEndColId = null;
+  let currentParentSource = null;
+  let currentParentMappedColId = null;
   let currentMappingsOk = false;
   let latestMappings = null;
 
@@ -385,14 +387,26 @@
 
   function getMappedColId(alias) {
     if (!latestMappings || !alias) return null;
-    if (latestMappings.columns && latestMappings.columns[alias]) return String(latestMappings.columns[alias]);
-    if (latestMappings[alias]) return String(latestMappings[alias]);
+
+    const raw = latestMappings.columns && latestMappings.columns[alias]
+      ? latestMappings.columns[alias]
+      : latestMappings[alias];
+
+    if (!raw) return null;
+    if (typeof raw === "string") return raw;
+    if (typeof raw === "number") return String(raw);
+    if (typeof raw === "object") {
+      const colId = raw.colId ?? raw.id ?? raw.name ?? raw.col ?? null;
+      return colId != null ? String(colId) : null;
+    }
+
     return null;
   }
 
   async function resolveParentTableIdFromMapping() {
     try {
       const parentColId = getMappedColId("parent");
+      currentParentMappedColId = parentColId || null;
       const tableId = currentTableId || await grist.selectedTable.getTableId();
       if (!parentColId || !tableId) return null;
 
@@ -483,10 +497,12 @@
     const parentTableIdFromData =
       records.find((r) => r && r.parentTableId)?.parentTableId || null;
     const parentTableId = parentTableIdFromData || await resolveParentTableIdFromMapping();
+    currentParentSource = parentTableIdFromData ? "data" : "mapping";
     if (!parentTableId) {
       currentParentTableId = null;
       currentParentStartColId = null;
       currentParentEndColId = null;
+      currentParentSource = null;
       return out;
     }
 
@@ -1371,8 +1387,8 @@
         : 0;
 
     const parentInfo = currentParentTableId
-      ? ` | table parent(ref)=${currentParentTableId}, début=${currentParentStartColId || "auto introuvable"}, fin=${currentParentEndColId || "auto introuvable"}`
-      : "";
+      ? ` | parentCol=${currentParentMappedColId || "non mappé"}, source=${currentParentSource || "?"}, table parent=${currentParentTableId}, début=${currentParentStartColId || "auto introuvable"}, fin=${currentParentEndColId || "auto introuvable"}`
+      : ` | parentCol=${currentParentMappedColId || "non mappé"}, table parent=introuvable`;
     mappingInfoEl.textContent =
       "Mapping actif : " +
       (currentMappingsOk ? "oui" : "non") +
