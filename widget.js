@@ -353,18 +353,32 @@
   
   function parseRefValue(value) {
     if (value == null) return { label: "", rowId: null, tableId: null };
+
     if (typeof value === "object") {
       if (Array.isArray(value)) {
+        if (!value.length) return { label: "", rowId: null, tableId: null };
+
+        const looksLikeRefList = Array.isArray(value[0]) || (typeof value[0] === "object" && value[0] !== null);
+        if (looksLikeRefList) {
+          return parseRefValue(value[0]);
+        }
+
         const rowId = Number(value[0]);
         const label = value[1] != null ? String(value[1]) : String(value[0] ?? "");
         const tableId = value[2] != null ? String(value[2]) : null;
         return { label, rowId: Number.isFinite(rowId) ? rowId : null, tableId };
       }
+
       const rowId = Number(value.id ?? value.rowId ?? value.Ref ?? value.ref);
       const label = value.label ?? value.name ?? value.displayValue ?? value.value ?? value.title ?? value.id ?? "";
       const tableId = value.tableId ?? value.table ?? value.tableName ?? null;
-      return { label: String(label || ""), rowId: Number.isFinite(rowId) ? rowId : null, tableId: tableId ? String(tableId) : null };
+      return {
+        label: String(label || ""),
+        rowId: Number.isFinite(rowId) ? rowId : null,
+        tableId: tableId ? String(tableId) : null
+      };
     }
+
     return { label: String(value), rowId: null, tableId: null };
   }
 
