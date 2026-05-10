@@ -347,6 +347,24 @@
     return out;
   }
 
+  
+  function parseRefValue(value) {
+    if (value == null) return { label: "", rowId: null, tableId: null };
+    if (typeof value === "object") {
+      if (Array.isArray(value)) {
+        const rowId = Number(value[0]);
+        const label = value[1] != null ? String(value[1]) : String(value[0] ?? "");
+        const tableId = value[2] != null ? String(value[2]) : null;
+        return { label, rowId: Number.isFinite(rowId) ? rowId : null, tableId };
+      }
+      const rowId = Number(value.id ?? value.rowId ?? value.Ref ?? value.ref);
+      const label = value.label ?? value.name ?? value.displayValue ?? value.value ?? value.title ?? value.id ?? "";
+      const tableId = value.tableId ?? value.table ?? value.tableName ?? null;
+      return { label: String(label || ""), rowId: Number.isFinite(rowId) ? rowId : null, tableId: tableId ? String(tableId) : null };
+    }
+    return { label: String(value), rowId: null, tableId: null };
+  }
+
   function buildLogicalRecords(records) {
     const result = [];
 
@@ -360,7 +378,8 @@
         continue;
       }
 
-      const parentVal = (mapped.parent || "").toString().trim();
+      const parentRef = parseRefValue(mapped.parent);
+      const parentVal = (parentRef.label || "").toString().trim();
       const childVal = (mapped.child || "").toString().trim();
       const startDate = normalizeDate(mapped.start);
       const endDate = normalizeDate(mapped.end);
@@ -385,7 +404,9 @@
       result.push({
         rowId: raw.id || raw.Id || raw.ID,
         kind,
-        parentKey: parentVal || "",
+        parentKey: (parentRef.rowId != null ? `ref:${parentRef.rowId}` : parentVal) || "",
+        parentRowId: parentRef.rowId,
+        parentTableId: parentRef.tableId,
         parentLabel,
         childLabel,
         startDate,
@@ -423,6 +444,8 @@
           groupsMap.set(key, {
             parentKey: key,
             parentLabel: r.parentLabel || key || "(Sans parent)",
+            parentRowId: r.parentRowId || null,
+            parentTableId: r.parentTableId || null,
             children: [],
             aggStart: null,
             aggEnd: null,
@@ -1285,7 +1308,22 @@
   }
 
   async function moveParentGroup(parentKey, originalChildren, deltaDays) {
-    if (!parentKey || !originalChildren || !deltaDays) return;
+    if (!parentKey || !deltaDays) return;
+
+    const grp = parentGroups.find((g) => g.parentKey === parentKey);
+    if (grp && grp.parentRowId != null && grp.parentTableId && grp.explicitParentStart && grp.explicitParentEnd) {
+      const payload = { id: grp.parentRowId, fields: {} };
+      payload.fields["Date début parent"] = toGristDateString(addDays(grp.explicitParentStart, deltaDays));
+      payload.fields["Date fin parent"] = toGristDateString(addDays(grp.explicitParentEnd, deltaDays));
+      try {
+        await grist.docApi.applyUserActions([["UpdateRecord", grp.parentTableId, grp.parentRowId, payload.fields]]);
+        return;
+      } catch (err) {
+        console.warn("Mise à jour parent liée impossible, fallback enfants", err);
+      }
+    }
+
+    if (!originalChildren) return;
 
     const updates = [];
     for (const c of originalChildren) {
