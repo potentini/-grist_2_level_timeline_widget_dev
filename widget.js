@@ -428,6 +428,19 @@
     return result;
   }
 
+  async function enrichRecordsWithParentDates(records) {
+    const parentDates = await loadParentDateMap(records);
+    if (!parentDates.size) return records;
+    for (const r of records) {
+      if (r.parentRowId == null) continue;
+      const pd = parentDates.get(Number(r.parentRowId));
+      if (!pd) continue;
+      if (!r.parentStartDate && pd.start) r.parentStartDate = pd.start;
+      if (!r.parentEndDate && pd.end) r.parentEndDate = pd.end;
+    }
+    return records;
+  }
+
   function groupData(records) {
     parentGroups = [];
     leafTasks = [];
@@ -2037,6 +2050,7 @@
     await refreshTableInfo();
 
     allRecords = buildLogicalRecords(records);
+    allRecords = await enrichRecordsWithParentDates(allRecords);
     groupData(allRecords);
 
     const range = computeGlobalRange(allRecords);
