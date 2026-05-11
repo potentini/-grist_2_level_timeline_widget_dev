@@ -42,6 +42,17 @@
   let currentMappingsOk = false;
   let latestMappings = null;
 
+  let availableChildCols = [];
+  let availableParentTables = [];
+  let availableParentCols = [];
+  let manualParentMapping = {
+    enabled: false,
+    childParentColId: null,
+    parentTableId: null,
+    parentStartColId: null,
+    parentEndColId: null
+  };
+
   const mappingInfoEl = document.getElementById("mappingInfo");
   const debugStatusEl = document.getElementById("debugStatus");
   const debugSyncModeEl = document.getElementById("debugSyncMode");
@@ -73,6 +84,13 @@
   const groupChildrenBtn = document.getElementById("groupChildrenBtn");
   const toggleDateEditBtn = document.getElementById("toggleDateEditBtn");
   const ganttContainer = document.getElementById("ganttContainer");
+  const toggleMappingPanelBtn = document.getElementById("toggleMappingPanelBtn");
+  const mappingPanelEl = document.getElementById("mappingPanel");
+  const parentRefColSelect = document.getElementById("parentRefColSelect");
+  const parentTableSelect = document.getElementById("parentTableSelect");
+  const parentStartColSelect = document.getElementById("parentStartColSelect");
+  const parentEndColSelect = document.getElementById("parentEndColSelect");
+  const resetManualMappingBtn = document.getElementById("resetManualMappingBtn");
 
   const dragState = {
     active: false,
@@ -121,6 +139,9 @@
       }
       if (s.visibleStart) visibleStart = normalizeDate(s.visibleStart);
       if (s.visibleEnd) visibleEnd = normalizeDate(s.visibleEnd);
+      if (s.manualParentMapping && typeof s.manualParentMapping === "object") {
+        manualParentMapping = { ...manualParentMapping, ...s.manualParentMapping };
+      }
     } catch (e) {
       console.warn("Impossible de charger l’état persistant :", e);
     }
@@ -136,7 +157,8 @@
         allowTimelineDateEdit,
         expandedParents,
         visibleStart: visibleStart ? toGristDateString(visibleStart) : null,
-        visibleEnd: visibleEnd ? toGristDateString(visibleEnd) : null
+        visibleEnd: visibleEnd ? toGristDateString(visibleEnd) : null,
+        manualParentMapping
       };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
@@ -420,6 +442,47 @@
     return null;
   }
 
+
+  function fillSelect(selectEl, options, placeholder) {
+    selectEl.innerHTML = "";
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = placeholder || "(auto)";
+    selectEl.appendChild(empty);
+    for (const opt of options) {
+      const el = document.createElement("option");
+      el.value = opt.value;
+      el.textContent = opt.label;
+      selectEl.appendChild(el);
+    }
+  }
+
+  async function loadMappingOptions() {
+    if (!currentTableId) return;
+    const cols = await grist.docApi.fetchTable("_grist_Tables_column");
+    const tables = await grist.docApi.fetchTable("_grist_Tables");
+    const childMeta = (tables || []).find((t) => String(t.tableId) === String(currentTableId));
+    const childRef = childMeta ? Number(childMeta.id) : null;
+    availableChildCols = (cols || []).filter((c) => Number(c.parentId) === childRef).map((c) => ({ value: String(c.colId), label: `${c.colId} (${c.type || "?"})`}));
+    availableParentTables = (tables || []).map((t) => ({ value: String(t.tableId), label: String(t.tableId) }));
+    fillSelect(parentRefColSelect, availableChildCols, "Auto (mapping parent)");
+    fillSelect(parentTableSelect, availableParentTables, "Auto (depuis ref parent)");
+  }
+
+  async function refreshParentColumnOptions(tableId) {
+    availableParentCols = [];
+    if (!tableId) {
+      fillSelect(parentStartColSelect, [], "Auto");
+      fillSelect(parentEndColSelect, [], "Auto");
+      return;
+    }
+    const table = await grist.docApi.fetchTable(tableId);
+    const colIds = table && table[0] ? Object.keys(table[0]) : [];
+    availableParentCols = colIds.map((c) => ({ value: String(c), label: String(c) }));
+    fillSelect(parentStartColSelect, availableParentCols, "Auto détection début");
+    fillSelect(parentEndColSelect, availableParentCols, "Auto détection fin");
+  }
+
   async function resolveParentTableIdFromMapping() {
     try {
       const parentColId = getMappedColId("parent");
@@ -513,7 +576,9 @@
 
     const parentTableIdFromData =
       records.find((r) => r && r.parentTableId)?.parentTableId || null;
-    const parentTableId = parentTableIdFromData || await resolveParentTableIdFromMapping();
+    const parentTableId = manualParentMapping.enabled && manualParentMapping.parentTableId
+      ? manualParentMapping.parentTableId
+      : (parentTableIdFromData || await resolveParentTableIdFromMapping());
     currentParentSource = parentTableIdFromData ? "data" : "mapping";
     if (!parentTableId) {
       currentParentTableId = null;
@@ -537,7 +602,7 @@
         return null;
       };
 
-      const startColId = pickCol([
+      const startColId = manualParentMapping.enabled && manualParentMapping.parentStartColId ? manualParentMapping.parentStartColId : pickCol([
         "Date début parent",
         "Date debut parent",
         "parentStart",
@@ -545,7 +610,7 @@
         "date_debut",
         "date_debut_parent"
       ]);
-      const endColId = pickCol([
+      const endColId = manualParentMapping.enabled && manualParentMapping.parentEndColId ? manualParentMapping.parentEndColId : pickCol([
         "Date fin parent",
         "parentEnd",
         "end",
@@ -893,7 +958,59 @@
 
   toggleDateEditBtn.addEventListener("click", () => {
     allowTimelineDateEdit = !allowTimelineDateEdit;
-    refreshDateEditButton();
+  
+  async function initManualMappingUi() {
+    toggleMappingPanelBtn?.addEventListener("click", async () => {
+      const hidden = mappingPanelEl.hasAttribute("hidden");
+      if (hidden) {
+        mappingPanelEl.removeAttribute("hidden");
+        await loadMappingOptions();
+        parentRefColSelect.value = manualParentMapping.childParentColId || "";
+        parentTableSelect.value = manualParentMapping.parentTableId || "";
+        await refreshParentColumnOptions(parentTableSelect.value || null);
+        parentStartColSelect.value = manualParentMapping.parentStartColId || "";
+        parentEndColSelect.value = manualParentMapping.parentEndColId || "";
+      } else {
+        mappingPanelEl.setAttribute("hidden", "hidden");
+      }
+    });
+
+    parentTableSelect?.addEventListener("change", async (e) => {
+      manualParentMapping.enabled = true;
+      manualParentMapping.parentTableId = e.target.value || null;
+      await refreshParentColumnOptions(manualParentMapping.parentTableId);
+      saveState();
+    });
+
+    parentRefColSelect?.addEventListener("change", (e) => {
+      manualParentMapping.enabled = true;
+      manualParentMapping.childParentColId = e.target.value || null;
+      if (manualParentMapping.childParentColId) currentParentMappedColId = manualParentMapping.childParentColId;
+      saveState();
+    });
+
+    parentStartColSelect?.addEventListener("change", (e) => {
+      manualParentMapping.enabled = true;
+      manualParentMapping.parentStartColId = e.target.value || null;
+      saveState();
+    });
+
+    parentEndColSelect?.addEventListener("change", (e) => {
+      manualParentMapping.enabled = true;
+      manualParentMapping.parentEndColId = e.target.value || null;
+      saveState();
+    });
+
+    resetManualMappingBtn?.addEventListener("click", () => {
+      manualParentMapping = { enabled: false, childParentColId: null, parentTableId: null, parentStartColId: null, parentEndColId: null };
+      parentRefColSelect.value = ""; parentTableSelect.value = ""; parentStartColSelect.value = ""; parentEndColSelect.value = "";
+      saveState();
+      showToast("Mapping manuel réinitialisé", "success");
+    });
+  }
+
+  initManualMappingUi();
+  refreshDateEditButton();
     saveState();
   });
 
@@ -2170,6 +2287,58 @@
     render();
   });
 
+
+  async function initManualMappingUi() {
+    toggleMappingPanelBtn?.addEventListener("click", async () => {
+      const hidden = mappingPanelEl.hasAttribute("hidden");
+      if (hidden) {
+        mappingPanelEl.removeAttribute("hidden");
+        await loadMappingOptions();
+        parentRefColSelect.value = manualParentMapping.childParentColId || "";
+        parentTableSelect.value = manualParentMapping.parentTableId || "";
+        await refreshParentColumnOptions(parentTableSelect.value || null);
+        parentStartColSelect.value = manualParentMapping.parentStartColId || "";
+        parentEndColSelect.value = manualParentMapping.parentEndColId || "";
+      } else {
+        mappingPanelEl.setAttribute("hidden", "hidden");
+      }
+    });
+
+    parentTableSelect?.addEventListener("change", async (e) => {
+      manualParentMapping.enabled = true;
+      manualParentMapping.parentTableId = e.target.value || null;
+      await refreshParentColumnOptions(manualParentMapping.parentTableId);
+      saveState();
+    });
+
+    parentRefColSelect?.addEventListener("change", (e) => {
+      manualParentMapping.enabled = true;
+      manualParentMapping.childParentColId = e.target.value || null;
+      if (manualParentMapping.childParentColId) currentParentMappedColId = manualParentMapping.childParentColId;
+      saveState();
+    });
+
+    parentStartColSelect?.addEventListener("change", (e) => {
+      manualParentMapping.enabled = true;
+      manualParentMapping.parentStartColId = e.target.value || null;
+      saveState();
+    });
+
+    parentEndColSelect?.addEventListener("change", (e) => {
+      manualParentMapping.enabled = true;
+      manualParentMapping.parentEndColId = e.target.value || null;
+      saveState();
+    });
+
+    resetManualMappingBtn?.addEventListener("click", () => {
+      manualParentMapping = { enabled: false, childParentColId: null, parentTableId: null, parentStartColId: null, parentEndColId: null };
+      parentRefColSelect.value = ""; parentTableSelect.value = ""; parentStartColSelect.value = ""; parentEndColSelect.value = "";
+      saveState();
+      showToast("Mapping manuel réinitialisé", "success");
+    });
+  }
+
+  initManualMappingUi();
   refreshDateEditButton();
 
   grist.ready({

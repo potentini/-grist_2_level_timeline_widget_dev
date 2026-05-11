@@ -88,6 +88,33 @@
         margin-right: 4px;
       }
 
+      .mapping-panel {
+        margin-top: 6px;
+        padding: 8px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+        display: grid;
+        gap: 6px;
+        font-size: 0.74rem;
+      }
+
+      .mapping-panel[hidden] { display: none; }
+
+      .mapping-panel .row {
+        display: grid;
+        grid-template-columns: 130px minmax(160px, 1fr);
+        gap: 8px;
+        align-items: center;
+      }
+
+      .mapping-panel select {
+        width: 100%;
+        padding: 4px 6px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+      }
+
       .header-actions {
         display: flex;
         gap: 10px;
@@ -593,6 +620,13 @@
           <div class="debug-line"><strong>Sync</strong><span id="debugSyncMode">selectedTable.update</span></div>
           <div class="debug-line"><strong>Dernière action</strong><span id="debugAction">aucune</span></div>
         </div>
+        <div id="mappingPanel" class="mapping-panel" hidden>
+          <div class="row"><label for="parentRefColSelect">Colonne parent (enfant)</label><select id="parentRefColSelect"></select></div>
+          <div class="row"><label for="parentTableSelect">Table parent</label><select id="parentTableSelect"></select></div>
+          <div class="row"><label for="parentStartColSelect">Colonne début (parent)</label><select id="parentStartColSelect"></select></div>
+          <div class="row"><label for="parentEndColSelect">Colonne fin (parent)</label><select id="parentEndColSelect"></select></div>
+          <div><button class="btn btn-small" id="resetManualMappingBtn">Réinitialiser mapping manuel</button></div>
+        </div>
       </div>
 
       <div class="header-actions">
@@ -607,6 +641,7 @@
         <button class="btn btn-small" id="toggleLabelsBtn">Masquer labels</button>
         <button class="btn btn-small" id="groupChildrenBtn">Enfants : multi-lignes</button>
         <button class="btn btn-small" id="toggleDateEditBtn">Dates: édition bloquée</button>
+        <button class="btn btn-small" id="toggleMappingPanelBtn">Mapping parent</button>
 
         <button class="btn btn-small" id="prevBtn" title="Période précédente">◀</button>
         <button class="btn btn-small" id="todayBtn" title="Positionner aujourd’hui">Aujourd’hui</button>
