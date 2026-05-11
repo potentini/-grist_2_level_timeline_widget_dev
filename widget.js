@@ -469,6 +469,19 @@
     fillSelect(parentTableSelect, availableParentTables, "Auto (depuis ref parent)");
   }
 
+  async function getTableColumnIds(tableId) {
+    if (!tableId) return [];
+    const tables = await grist.docApi.fetchTable("_grist_Tables");
+    const tableMeta = (tables || []).find((t) => String(t.tableId) === String(tableId));
+    const tableRef = tableMeta ? Number(tableMeta.id) : null;
+    if (!Number.isFinite(tableRef)) return [];
+
+    const cols = await grist.docApi.fetchTable("_grist_Tables_column");
+    return (cols || [])
+      .filter((c) => Number(c.parentId) === tableRef)
+      .map((c) => String(c.colId));
+  }
+
   async function refreshParentColumnOptions(tableId) {
     availableParentCols = [];
     if (!tableId) {
@@ -476,8 +489,7 @@
       fillSelect(parentEndColSelect, [], "Auto");
       return;
     }
-    const table = await grist.docApi.fetchTable(tableId);
-    const colIds = table && table[0] ? Object.keys(table[0]) : [];
+    const colIds = await getTableColumnIds(tableId);
     availableParentCols = colIds.map((c) => ({ value: String(c), label: String(c) }));
     fillSelect(parentStartColSelect, availableParentCols, "Auto détection début");
     fillSelect(parentEndColSelect, availableParentCols, "Auto détection fin");
@@ -592,7 +604,7 @@
 
     try {
       const table = await grist.docApi.fetchTable(parentTableId);
-      const colIds = table && table[0] ? Object.keys(table[0]) : [];
+      const colIds = await getTableColumnIds(parentTableId);
       if (!colIds.length) return out;
 
       const byNorm = new Map(colIds.map((c) => [String(c).toLowerCase().trim(), c]));
