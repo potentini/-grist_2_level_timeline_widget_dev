@@ -563,6 +563,8 @@
         respOp: mapped.respOp || "",
         respChild: mapped.respChild || "",
         selector: mapped.selector || "",
+        sourceRowId: Number(mapped.sourceRowId ?? mapped.sourceId ?? mapped.masterRowId) || null,
+        sourceTableId: (mapped.sourceTableId || mapped.sourceTable || "").toString().trim() || null,
         order
       });
     }
@@ -1556,6 +1558,12 @@
     return { id, fields };
   }
 
+  function findSourceTargetForChildRow(childRowId) {
+    const rec = allRecords.find((r) => Number(r.rowId) === Number(childRowId));
+    if (!rec || rec.sourceRowId == null || !rec.sourceTableId) return null;
+    return { tableId: rec.sourceTableId, rowId: rec.sourceRowId };
+  }
+
   async function updateRows(records) {
     if (!records) return;
 
@@ -1569,22 +1577,42 @@
       return;
     }
 
+    const routedActions = [];
+    const sameTableUpdates = [];
+
+    for (const rec of cleaned) {
+      const target = findSourceTargetForChildRow(rec.id);
+      if (target) {
+        routedActions.push(["UpdateRecord", target.tableId, target.rowId, rec.fields]);
+      } else {
+        sameTableUpdates.push(rec);
+      }
+    }
+
+    if (routedActions.length) {
+      await grist.docApi.applyUserActions(routedActions);
+      setDebugSyncMode("docApi.applyUserActions (source routing)");
+      setDebugAction(`Update routé source: ${routedActions.length} ligne(s)`);
+    }
+
+    if (!sameTableUpdates.length) return;
+
     try {
-      await grist.selectedTable.update(cleaned);
+      await grist.selectedTable.update(sameTableUpdates);
       setDebugSyncMode("selectedTable.update");
-      setDebugAction(`Update ${cleaned.length} ligne(s) via selectedTable.update`);
+      setDebugAction(`Update ${sameTableUpdates.length} ligne(s) via selectedTable.update`);
     } catch (err) {
       console.warn("[GANTT DEBUG] selectedTable.update a échoué, tentative alternative applyUserActions", err);
       setDebugStatus("Fallback applyUserActions en cours…");
 
       const actions = [];
-      for (const rec of cleaned) {
+      for (const rec of sameTableUpdates) {
         actions.push(["UpdateRecord", currentTableId, rec.id, rec.fields]);
       }
 
       await grist.docApi.applyUserActions(actions);
       setDebugSyncMode("docApi.applyUserActions (fallback)");
-      setDebugAction(`Fallback appliqué sur ${cleaned.length} ligne(s)`);
+      setDebugAction(`Fallback appliqué sur ${sameTableUpdates.length} ligne(s)`);
     }
   }
 
@@ -2356,7 +2384,9 @@
       { name: "respOp", title: "Référent opérationnel", optional: true },
       { name: "respChild", title: "Responsable enfant", optional: true },
       { name: "selector", title: "Sélecteur O/N", optional: true },
-      { name: "order", title: "Ordre d’affichage", optional: true }
+      { name: "order", title: "Ordre d’affichage", optional: true },
+      { name: "sourceRowId", title: "ID ligne source", optional: true },
+      { name: "sourceTableId", title: "Table source", optional: true }
     ]
   });
 
