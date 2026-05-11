@@ -41,6 +41,18 @@ L’interface permet de naviguer dans le temps, regrouper/plier les tâches, cha
 4. Mapper les colonnes Grist attendues par le widget.
 5. Interagir avec le Gantt (zoom, navigation, drag & drop, filtres visuels).
 
+
+## Écriture vers une table source (recommandé avec colonnes calculées)
+
+Si votre vue Gantt est une table consolidée avec des `lookup` / formules (donc non éditables), configurez deux colonnes supplémentaires dans le mapping du widget :
+
+- `sourceRowId` : ID de la ligne métier réelle (ex: `$Sous_Projet.id`)
+- `sourceTableId` : identifiant de la table métier (ex: `Sous_Projets`)
+
+Dans ce mode, le widget continue à lire la vue consolidée mais envoie les modifications de dates directement vers la table source via `docApi.applyUserActions`.
+
+Sans ces colonnes, le widget conserve le comportement standard et tente d’écrire dans la table sélectionnée.
+
 ## Détails techniques
 
 - API Grist chargée depuis : `https://docs.getgrist.com/grist-plugin-api.js`.
