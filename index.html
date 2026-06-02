@@ -309,8 +309,12 @@
       .task-row.child-row {
         padding-left: 24px;
         font-size: 0.82rem;
-        cursor: grab;
       }
+
+      .task-row.level-1 { border-left: 4px solid #4f46e5; }
+      .task-row.level-2 { border-left: 4px solid #0ea5e9; }
+      .task-row.level-3 { border-left: 4px solid #10b981; }
+      .task-row.compact-row { background: #f8fafc; font-style: italic; }
 
       .task-row.dragging {
         opacity: 0.7;
@@ -392,6 +396,17 @@
       }
 
       .gantt-bar.parent { opacity: 0.9; }
+      .gantt-bar.level-1 { height: 20px; border-radius: 10px; }
+      .gantt-bar.level-2 { height: 18px; border-radius: 9px; }
+      .gantt-bar.level-3 { height: 16px; border-radius: 8px; margin-top: 1px; }
+
+      .bar-progress {
+        position: absolute;
+        inset: 0 auto 0 0;
+        border-radius: inherit;
+        background: rgba(255, 255, 255, 0.28);
+        pointer-events: none;
+      }
 
       .bar-label.inside {
         position: relative;
@@ -610,10 +625,10 @@
       <div>
         <h1>
           Timeline
-          <span>parent / enfant · éditable</span>
+          <span>multi-niveau 1 / 2 / 3 · éditable</span>
         </h1>
         <div id="mappingInfo" class="mapping-info">
-          Colonnes mappées : en attente…
+          Mapping multi-niveau : en attente…
         </div>
         <div id="debugPanel" class="debug-panel">
           <div class="debug-line"><strong>Debug</strong><span id="debugStatus">Initialisation…</span></div>
@@ -639,9 +654,9 @@
         <button class="btn btn-small" id="collapseAllBtn">Tout plier</button>
         <button class="btn btn-small" id="toggleSidebarBtn">Masquer liste</button>
         <button class="btn btn-small" id="toggleLabelsBtn">Masquer labels</button>
-        <button class="btn btn-small" id="groupChildrenBtn">Enfants : multi-lignes</button>
+        <button class="btn btn-small" id="groupChildrenBtn">Niveaux bas : multi-lignes</button>
         <button class="btn btn-small" id="toggleDateEditBtn">Dates: édition bloquée</button>
-        <button class="btn btn-small" id="toggleMappingPanelBtn">Mapping parent</button>
+        <button class="btn btn-small" id="toggleMappingPanelBtn">Aide mapping</button>
 
         <button class="btn btn-small" id="prevBtn" title="Période précédente">◀</button>
         <button class="btn btn-small" id="todayBtn" title="Positionner aujourd’hui">Aujourd’hui</button>

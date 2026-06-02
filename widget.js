@@ -9,49 +9,89 @@
 
   const PALETTE = [
     "#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7",
-    "#56B4E9", "#F0E442", "#000000", "#4C9A2A", "#8B5CF6",
+    "#56B4E9", "#F0E442", "#111827", "#4C9A2A", "#8B5CF6",
     "#0EA5E9", "#DC2626"
   ];
 
+  const LEVELS = [
+    { key: "level1", level: 1, label: "Niveau 1", required: true },
+    { key: "level2", level: 2, label: "Niveau 2", required: false },
+    { key: "level3", level: 3, label: "Niveau 3", required: false }
+  ];
+
+  const LEVEL_ALIASES = {
+    1: {
+      name: ["level1Name", "parent", "name", "title"],
+      start: ["level1Start", "parentStart", "start"],
+      end: ["level1End", "parentEnd", "end"],
+      status: ["level1Status", "status"],
+      responsible: ["level1Responsible", "respPol", "respOp", "responsible"],
+      progress: ["level1Progress", "progress", "avance", "avancement"],
+      sourceTable: ["level1SourceTableId", "level1SourceTable", "sourceTableId", "sourceTable", "Source_Table"],
+      sourceRow: ["level1SourceRowId", "level1SourceId", "sourceRowId", "sourceId", "masterRowId", "Source_Record_ID"],
+      sourceStartCol: ["level1StartColId", "level1SourceStartCol", "sourceStartColId", "sourceStartCol", "Source_Start_Col"],
+      sourceEndCol: ["level1EndColId", "level1SourceEndCol", "sourceEndColId", "sourceEndCol", "Source_End_Col"],
+      sourceProgressCol: ["level1ProgressColId", "level1SourceProgressCol", "sourceProgressColId", "sourceProgressCol", "Source_Progress_Col"]
+    },
+    2: {
+      name: ["level2Name", "child"],
+      start: ["level2Start", "start"],
+      end: ["level2End", "end"],
+      status: ["level2Status", "status"],
+      responsible: ["level2Responsible", "respChild", "responsible"],
+      progress: ["level2Progress", "progress", "avance", "avancement"],
+      sourceTable: ["level2SourceTableId", "level2SourceTable", "sourceTableId", "sourceTable", "Source_Table"],
+      sourceRow: ["level2SourceRowId", "level2SourceId", "sourceRowId", "sourceId", "masterRowId", "Source_Record_ID"],
+      sourceStartCol: ["level2StartColId", "level2SourceStartCol", "sourceStartColId", "sourceStartCol", "Source_Start_Col"],
+      sourceEndCol: ["level2EndColId", "level2SourceEndCol", "sourceEndColId", "sourceEndCol", "Source_End_Col"],
+      sourceProgressCol: ["level2ProgressColId", "level2SourceProgressCol", "sourceProgressColId", "sourceProgressCol", "Source_Progress_Col"]
+    },
+    3: {
+      name: ["level3Name", "subTask", "subtask"],
+      start: ["level3Start", "start"],
+      end: ["level3End", "end"],
+      status: ["level3Status", "status"],
+      responsible: ["level3Responsible", "respChild", "responsible"],
+      progress: ["level3Progress", "progress", "avance", "avancement"],
+      sourceTable: ["level3SourceTableId", "level3SourceTable", "sourceTableId", "sourceTable", "Source_Table"],
+      sourceRow: ["level3SourceRowId", "level3SourceId", "sourceRowId", "sourceId", "masterRowId", "Source_Record_ID"],
+      sourceStartCol: ["level3StartColId", "level3SourceStartCol", "sourceStartColId", "sourceStartCol", "Source_Start_Col"],
+      sourceEndCol: ["level3EndColId", "level3SourceEndCol", "sourceEndColId", "sourceEndCol", "Source_End_Col"],
+      sourceProgressCol: ["level3ProgressColId", "level3SourceProgressCol", "sourceProgressColId", "sourceProgressCol", "Source_Progress_Col"]
+    }
+  };
+
+  const FIELD_LABELS = {
+    level: "Niveau",
+    name: "Nom",
+    start: "Début",
+    end: "Fin",
+    status: "Statut",
+    responsible: "Responsable",
+    progress: "Avancement",
+    sourceTable: "Table source"
+  };
+
   let zoomMode = "day";
   let allRecords = [];
-  let parentGroups = [];
-  let leafTasks = [];
-  let expandedParents = {};
+  let treeRoots = [];
+  let flatTracks = [];
+  let nodeById = new Map();
+  let expandedNodes = {};
   let globalMinDate = null;
   let globalMaxDate = null;
   let visibleStart = null;
   let visibleEnd = null;
-
-  let colorField = "priority";
-  const availableColorFields = [
-    "parent", "child", "start", "end",
-    "priority", "status", "respPol", "respOp", "respChild", "selector", "order"
-  ];
-
+  let colorField = "level";
   let labelsVisible = true;
-  let childrenOnOneRow = false;
+  let compactChildren = false;
   let allowTimelineDateEdit = false;
-
   let currentTableId = null;
-  let currentParentTableId = null;
-  let currentParentStartColId = null;
-  let currentParentEndColId = null;
-  let currentParentSource = null;
-  let currentParentMappedColId = null;
   let currentMappingsOk = false;
   let latestMappings = null;
+  let latestWriteSummary = "selectedTable.update";
 
-  let availableChildCols = [];
-  let availableParentTables = [];
-  let availableParentCols = [];
-  let manualParentMapping = {
-    enabled: false,
-    childParentColId: null,
-    parentTableId: null,
-    parentStartColId: null,
-    parentEndColId: null
-  };
+  const STORAGE_KEY = "grist_gantt_multilevel_state_v1";
 
   const mappingInfoEl = document.getElementById("mappingInfo");
   const debugStatusEl = document.getElementById("debugStatus");
@@ -86,30 +126,19 @@
   const ganttContainer = document.getElementById("ganttContainer");
   const toggleMappingPanelBtn = document.getElementById("toggleMappingPanelBtn");
   const mappingPanelEl = document.getElementById("mappingPanel");
-  const parentRefColSelect = document.getElementById("parentRefColSelect");
-  const parentTableSelect = document.getElementById("parentTableSelect");
-  const parentStartColSelect = document.getElementById("parentStartColSelect");
-  const parentEndColSelect = document.getElementById("parentEndColSelect");
-  const resetManualMappingBtn = document.getElementById("resetManualMappingBtn");
 
   const dragState = {
     active: false,
     type: null,
     bar: null,
     milestone: null,
-    taskId: null,
-    parentKey: null,
+    nodeId: null,
     originalStart: null,
     originalEnd: null,
     originalMilestoneDate: null,
-    originalChildren: null,
     startX: 0,
     pxPerDay: 0
   };
-
-  let sideDragInfo = null;
-  const STORAGE_KEY = "grist_gantt_state_v12";
-  let lastSyncMode = "selectedTable.update";
 
   function setDebugStatus(message) {
     if (debugStatusEl) debugStatusEl.textContent = message;
@@ -120,7 +149,7 @@
   }
 
   function setDebugSyncMode(message) {
-    lastSyncMode = message;
+    latestWriteSummary = message;
     if (debugSyncModeEl) debugSyncModeEl.textContent = message;
   }
 
@@ -132,16 +161,11 @@
       if (s.zoomMode) zoomMode = s.zoomMode;
       if (s.colorField) colorField = s.colorField;
       if (typeof s.labelsVisible === "boolean") labelsVisible = s.labelsVisible;
-      if (typeof s.childrenOnOneRow === "boolean") childrenOnOneRow = s.childrenOnOneRow;
+      if (typeof s.compactChildren === "boolean") compactChildren = s.compactChildren;
       if (typeof s.allowTimelineDateEdit === "boolean") allowTimelineDateEdit = s.allowTimelineDateEdit;
-      if (s.expandedParents && typeof s.expandedParents === "object") {
-        expandedParents = s.expandedParents;
-      }
+      if (s.expandedNodes && typeof s.expandedNodes === "object") expandedNodes = s.expandedNodes;
       if (s.visibleStart) visibleStart = normalizeDate(s.visibleStart);
       if (s.visibleEnd) visibleEnd = normalizeDate(s.visibleEnd);
-      if (s.manualParentMapping && typeof s.manualParentMapping === "object") {
-        manualParentMapping = { ...manualParentMapping, ...s.manualParentMapping };
-      }
     } catch (e) {
       console.warn("Impossible de charger l’état persistant :", e);
     }
@@ -149,18 +173,16 @@
 
   function saveState() {
     try {
-      const state = {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
         zoomMode,
         colorField,
         labelsVisible,
-        childrenOnOneRow,
+        compactChildren,
         allowTimelineDateEdit,
-        expandedParents,
+        expandedNodes,
         visibleStart: visibleStart ? toGristDateString(visibleStart) : null,
-        visibleEnd: visibleEnd ? toGristDateString(visibleEnd) : null,
-        manualParentMapping
-      };
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        visibleEnd: visibleEnd ? toGristDateString(visibleEnd) : null
+      }));
     } catch (e) {
       console.warn("Impossible de sauvegarder l’état persistant :", e);
     }
@@ -170,8 +192,10 @@
 
   function normalizeDate(value) {
     if (!value) return null;
-    if (value instanceof Date) {
-      return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    if (value instanceof Date) return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    if (typeof value === "number") {
+      const d = new Date(value * 1000);
+      return isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
     }
     const d = new Date(value);
     if (isNaN(d.getTime())) return null;
@@ -185,56 +209,29 @@
   }
 
   function diffInDays(a, b) {
-    const msPerDay = 24 * 60 * 60 * 1000;
     const da = normalizeDate(a);
     const db = normalizeDate(b);
-    return Math.round((db - da) / msPerDay);
+    return Math.round((db - da) / 86400000);
   }
 
-  function startOfYear(date) {
-    return new Date(date.getFullYear(), 0, 1);
-  }
-
-  function endOfYear(date) {
-    return new Date(date.getFullYear(), 11, 31);
-  }
-
-  function isWeekend(d) {
-    const day = d.getDay();
-    return day === 0 || day === 6;
-  }
-
-  function isSameDay(a, b) {
-    return (
-      a.getFullYear() === b.getFullYear() &&
-      a.getMonth() === b.getMonth() &&
-      a.getDate() === b.getDate()
-    );
-  }
+  function startOfYear(date) { return new Date(date.getFullYear(), 0, 1); }
+  function endOfYear(date) { return new Date(date.getFullYear(), 11, 31); }
+  function isWeekend(d) { return d.getDay() === 0 || d.getDay() === 6; }
+  function isSameDay(a, b) { return a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
 
   function formatDate(d) {
     if (!d) return "–";
-    return d.toLocaleDateString("fr-FR", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric"
-    });
+    return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
   }
 
   function formatDateShort(d) {
     if (!d) return "–";
-    const day = String(d.getDate());
-    const month = String(d.getMonth() + 1);
-    const year = String(d.getFullYear()).slice(-2);
-    return `${day}/${month}/${year}`;
+    return `${d.getDate()}/${d.getMonth() + 1}/${String(d.getFullYear()).slice(-2)}`;
   }
 
   function toGristDateString(d) {
     if (!d) return null;
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 
   function isoWeekNumber(date) {
@@ -245,64 +242,12 @@
     return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
   }
 
-  function showToast(message, type = "info") {
-    const el = document.createElement("div");
-    el.className =
-      "toast " +
-      (type === "success" ? "success" : type === "error" ? "error" : "");
-    el.textContent = message;
-    toastContainer.appendChild(el);
-    setTimeout(() => el.remove(), 2600);
-  }
-
-  function showTooltip(x, y, title, start, end, extras) {
-    tooltipEl.querySelector(".tooltip-title").textContent = title;
-    ttStartEl.textContent = formatDate(start);
-    ttEndEl.textContent = formatDate(end);
-
-    const lines = [];
-    if (extras.parentLabel) lines.push(`<div><span>Parent</span><span>${extras.parentLabel}</span></div>`);
-    if (extras.childLabel) lines.push(`<div><span>Enfant</span><span>${extras.childLabel}</span></div>`);
-    if (extras.status) lines.push(`<div><span>Statut</span><span>${extras.status}</span></div>`);
-    if (extras.priority) lines.push(`<div><span>Priorité</span><span>${extras.priority}</span></div>`);
-    if (extras.respPol) lines.push(`<div><span>Réf. pol.</span><span>${extras.respPol}</span></div>`);
-    if (extras.respOp) lines.push(`<div><span>Réf. op.</span><span>${extras.respOp}</span></div>`);
-    if (extras.respChild) lines.push(`<div><span>Responsable</span><span>${extras.respChild}</span></div>`);
-    ttExtraEl.innerHTML = lines.join("");
-
-    tooltipEl.classList.add("visible");
-    tooltipEl.style.left = x + 12 + "px";
-    tooltipEl.style.top = y + 10 + "px";
-
-    const rect = tooltipEl.getBoundingClientRect();
-    const margin = 12;
-    let left = x + 12;
-    let top = y + 10;
-
-    if (rect.right > window.innerWidth - margin) left = x - rect.width - 12;
-    if (left < margin) left = margin;
-    if (rect.bottom > window.innerHeight - margin) {
-      top = window.innerHeight - rect.height - margin;
+  function cleanRecordForUpdate(obj) {
+    const out = {};
+    for (const [key, value] of Object.entries(obj || {})) {
+      if (value !== undefined && key !== "id") out[key] = value;
     }
-    if (top < margin) top = margin;
-
-    tooltipEl.style.left = left + "px";
-    tooltipEl.style.top = top + "px";
-  }
-
-  function hideTooltip() {
-    tooltipEl.classList.remove("visible");
-  }
-
-  function showDragBubble(html, x, y) {
-    dragBubbleEl.innerHTML = html;
-    dragBubbleEl.style.left = x + "px";
-    dragBubbleEl.style.top = y + "px";
-    dragBubbleEl.classList.add("visible");
-  }
-
-  function hideDragBubble() {
-    dragBubbleEl.classList.remove("visible");
+    return out;
   }
 
   function hashStringToInt(str) {
@@ -314,473 +259,247 @@
     return Math.abs(h);
   }
 
-  function getColorForTask(task) {
-    const f = colorField;
-    let v = null;
-
-    if (f === "priority") v = task.priority;
-    else if (f === "status") v = task.status;
-    else if (f === "respPol") v = task.respPol;
-    else if (f === "respOp") v = task.respOp;
-    else if (f === "respChild") v = task.respChild;
-    else if (f === "parent") v = task.parentLabel;
-    else if (f === "child") v = task.childLabel;
-    else if (f === "start") v = task.startDate ? task.startDate.toISOString().slice(0, 10) : "";
-    else if (f === "end") v = task.endDate ? task.endDate.toISOString().slice(0, 10) : "";
-    else if (f === "selector") v = task.selector;
-    else if (f === "order") v = task.order != null ? String(task.order) : "";
-
-    if (f === "priority") {
-      const p = String(v || "");
-      if (p.startsWith("1")) return "#ef4444";
-      if (p.startsWith("2")) return "#f59e0b";
-      if (p.startsWith("3")) return "#3b82f6";
-      if (!v) return "#64748b";
-    }
-
-    if (f === "status") {
-      const s = String(v || "").trim().toLowerCase();
-      if (["terminé", "termine", "done", "clos", "clôturé", "cloture"].includes(s)) return "#10b981";
-      if (["en cours", "ongoing", "started"].includes(s)) return "#3b82f6";
-      if (["bloqué", "bloque", "blocked"].includes(s)) return "#ef4444";
-      if (["à faire", "a faire", "todo", "non démarré", "non demarre"].includes(s)) return "#64748b";
-    }
-
-    const key = v == null ? "" : String(v);
-    const idx = hashStringToInt(key) % PALETTE.length;
-    return PALETTE[idx];
+  function showToast(message, type = "info") {
+    if (!toastContainer) return;
+    const el = document.createElement("div");
+    el.className = "toast " + (type === "success" ? "success" : type === "error" ? "error" : "");
+    el.textContent = message;
+    toastContainer.appendChild(el);
+    setTimeout(() => el.remove(), 2800);
   }
 
-  function initColorFieldSelect() {
-    colorFieldSelect.innerHTML = "";
-    const labels = {
-      parent: "Nom parent",
-      child: "Nom enfant",
-      start: "Date début enfant",
-      end: "Date fin enfant",
-      priority: "Priorité enfant",
-      status: "Statut",
-      respPol: "Référent politique",
-      respOp: "Référent opérationnel",
-      respChild: "Responsable enfant",
-      selector: "Sélecteur O/N",
-      order: "Ordre d’affichage"
-    };
-
-    for (const f of availableColorFields) {
-      const opt = document.createElement("option");
-      opt.value = f;
-      opt.textContent = labels[f] || f;
-      colorFieldSelect.appendChild(opt);
-    }
-    if (!availableColorFields.includes(colorField)) colorField = availableColorFields[0];
-    colorFieldSelect.value = colorField;
+  function showDragBubble(html, x, y) {
+    if (!dragBubbleEl) return;
+    dragBubbleEl.innerHTML = html;
+    dragBubbleEl.style.left = x + "px";
+    dragBubbleEl.style.top = y + "px";
+    dragBubbleEl.classList.add("visible");
   }
 
-  colorFieldSelect.addEventListener("change", (e) => {
-    colorField = e.target.value;
-    saveState();
-    render();
-  });
-
-  function cleanRecordForUpdate(obj) {
-    const out = {};
-    for (const [key, value] of Object.entries(obj || {})) {
-      if (value !== undefined) out[key] = value;
-    }
-    return out;
+  function hideDragBubble() {
+    if (dragBubbleEl) dragBubbleEl.classList.remove("visible");
   }
 
-  
-  function parseRefValue(value) {
-    if (value == null) return { label: "", rowId: null, tableId: null };
-
-    if (typeof value === "object") {
-      if (Array.isArray(value)) {
-        if (!value.length) return { label: "", rowId: null, tableId: null };
-
-        const looksLikeRefList = Array.isArray(value[0]) || (typeof value[0] === "object" && value[0] !== null);
-        if (looksLikeRefList) {
-          return parseRefValue(value[0]);
-        }
-
-        const rowId = Number(value[0]);
-        const label = value[1] != null ? String(value[1]) : String(value[0] ?? "");
-        const tableId = value[2] != null ? String(value[2]) : null;
-        return { label, rowId: Number.isFinite(rowId) ? rowId : null, tableId };
-      }
-
-      const rowId = Number(value.id ?? value.rowId ?? value.Ref ?? value.ref);
-      const label = value.label ?? value.name ?? value.displayValue ?? value.value ?? value.title ?? value.id ?? "";
-      const tableId = value.tableId ?? value.table ?? value.tableName ?? null;
-      return {
-        label: String(label || ""),
-        rowId: Number.isFinite(rowId) ? rowId : null,
-        tableId: tableId ? String(tableId) : null
-      };
+  function coalesce(...values) {
+    for (const value of values) {
+      if (value !== undefined && value !== null && String(value).trim() !== "") return value;
     }
-
-    return { label: String(value), rowId: null, tableId: null };
-  }
-
-
-  function getMappedColId(alias) {
-    if (!latestMappings || !alias) return null;
-
-    const raw = latestMappings.columns && latestMappings.columns[alias]
-      ? latestMappings.columns[alias]
-      : latestMappings[alias];
-
-    if (!raw) return null;
-    if (typeof raw === "string") return raw;
-    if (typeof raw === "number") return String(raw);
-    if (typeof raw === "object") {
-      const colId = raw.colId ?? raw.id ?? raw.name ?? raw.col ?? null;
-      return colId != null ? String(colId) : null;
-    }
-
     return null;
   }
 
-
-  function fillSelect(selectEl, options, placeholder) {
-    selectEl.innerHTML = "";
-    const empty = document.createElement("option");
-    empty.value = "";
-    empty.textContent = placeholder || "(auto)";
-    selectEl.appendChild(empty);
-    for (const opt of options) {
-      const el = document.createElement("option");
-      el.value = opt.value;
-      el.textContent = opt.label;
-      selectEl.appendChild(el);
+  function mappedValue(mapped, aliases) {
+    for (const alias of aliases || []) {
+      if (Object.prototype.hasOwnProperty.call(mapped, alias) && mapped[alias] !== undefined && mapped[alias] !== null && String(mapped[alias]).trim() !== "") {
+        return mapped[alias];
+      }
     }
+    return null;
   }
 
-  async function loadMappingOptions() {
-    if (!currentTableId) return;
-    const cols = await grist.docApi.fetchTable("_grist_Tables_column");
-    const tables = await grist.docApi.fetchTable("_grist_Tables");
-    const childMeta = (tables || []).find((t) => String(t.tableId) === String(currentTableId));
-    const childRef = childMeta ? Number(childMeta.id) : null;
-    availableChildCols = (cols || []).filter((c) => Number(c.parentId) === childRef).map((c) => ({ value: String(c.colId), label: `${c.colId} (${c.type || "?"})`}));
-    availableParentTables = (tables || []).map((t) => ({ value: String(t.tableId), label: String(t.tableId) }));
-    fillSelect(parentRefColSelect, availableChildCols, "Auto (mapping parent)");
-    fillSelect(parentTableSelect, availableParentTables, "Auto (depuis ref parent)");
-  }
-
-  async function getTableColumnIds(tableId) {
-    if (!tableId) return [];
-    const tables = await grist.docApi.fetchTable("_grist_Tables");
-    const tableMeta = (tables || []).find((t) => String(t.tableId) === String(tableId));
-    const tableRef = tableMeta ? Number(tableMeta.id) : null;
-    if (!Number.isFinite(tableRef)) return [];
-
-    const cols = await grist.docApi.fetchTable("_grist_Tables_column");
-    return (cols || [])
-      .filter((c) => Number(c.parentId) === tableRef)
-      .map((c) => String(c.colId));
-  }
-
-  async function refreshParentColumnOptions(tableId) {
-    availableParentCols = [];
-    if (!tableId) {
-      fillSelect(parentStartColSelect, [], "Auto");
-      fillSelect(parentEndColSelect, [], "Auto");
-      return;
+  function parseRefValue(value) {
+    if (value == null) return { label: "", rowId: null, tableId: null };
+    if (Array.isArray(value)) {
+      if (!value.length) return { label: "", rowId: null, tableId: null };
+      if (Array.isArray(value[0]) || (typeof value[0] === "object" && value[0] !== null)) return parseRefValue(value[0]);
+      const rowId = Number(value[0]);
+      return {
+        label: value[1] != null ? String(value[1]) : String(value[0] ?? ""),
+        rowId: Number.isFinite(rowId) ? rowId : null,
+        tableId: value[2] != null ? String(value[2]) : null
+      };
     }
-    const colIds = await getTableColumnIds(tableId);
-    availableParentCols = colIds.map((c) => ({ value: String(c), label: String(c) }));
-    fillSelect(parentStartColSelect, availableParentCols, "Auto détection début");
-    fillSelect(parentEndColSelect, availableParentCols, "Auto détection fin");
+    if (typeof value === "object") {
+      const rowId = Number(value.id ?? value.rowId ?? value.Ref ?? value.ref);
+      const label = value.label ?? value.name ?? value.displayValue ?? value.value ?? value.title ?? value.id ?? "";
+      const tableId = value.tableId ?? value.table ?? value.tableName ?? null;
+      return { label: String(label || ""), rowId: Number.isFinite(rowId) ? rowId : null, tableId: tableId ? String(tableId) : null };
+    }
+    return { label: String(value), rowId: null, tableId: null };
   }
 
-  async function resolveParentTableIdFromMapping() {
-    try {
-      const parentColId = getMappedColId("parent");
-      currentParentMappedColId = parentColId || null;
-      const tableId = currentTableId || await grist.selectedTable.getTableId();
-      if (!parentColId || !tableId) return null;
-
-      const tables = await grist.docApi.fetchTable("_grist_Tables");
-      const tableMeta = (tables || []).find((r) => String(r.tableId) === String(tableId));
-      const tableRef = tableMeta ? Number(tableMeta.id) : null;
-      if (!Number.isFinite(tableRef)) return null;
-
-      const cols = await grist.docApi.fetchTable("_grist_Tables_column");
-      const colMeta = (cols || []).find((c) => Number(c.parentId) === tableRef && String(c.colId) === String(parentColId));
-      if (!colMeta || !colMeta.type) return null;
-
-      const m = String(colMeta.type).match(/^RefList?:\s*(.+)$/i);
-      return m && m[1] ? m[1].trim() : null;
-    } catch (err) {
-      console.warn("Impossible de déduire la table cible depuis le mapping parent", err);
-      return null;
+  function parseProgress(value) {
+    if (value == null || value === "") return null;
+    if (typeof value === "string") {
+      const cleaned = value.replace("%", "").replace(",", ".").trim();
+      if (!cleaned) return null;
+      const n = Number(cleaned);
+      if (!Number.isFinite(n)) return null;
+      return Math.max(0, Math.min(100, n <= 1 && !value.includes("%") ? n * 100 : n));
     }
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    return Math.max(0, Math.min(100, n <= 1 ? n * 100 : n));
+  }
+
+  function makeNodeId(level, parts, refInfo, source) {
+    if (source.tableId && source.rowId != null) return `L${level}:src:${source.tableId}:${source.rowId}`;
+    if (refInfo && refInfo.tableId && refInfo.rowId != null) return `L${level}:ref:${refInfo.tableId}:${refInfo.rowId}`;
+    if (refInfo && refInfo.rowId != null) return `L${level}:ref:${refInfo.rowId}`;
+    return `L${level}:path:${parts.map((p) => String(p || "").trim()).join("›")}`;
+  }
+
+  function createEmptyNode({ id, level, label, parentId, sourceIndex, sourceRowId, source }) {
+    return {
+      id,
+      level,
+      label: label || `(Niveau ${level} sans nom)`,
+      parentId: parentId || null,
+      children: [],
+      sourceIndex,
+      firstDisplayRowId: sourceRowId,
+      startDate: null,
+      endDate: null,
+      aggStart: null,
+      aggEnd: null,
+      explicitDates: false,
+      isMilestone: false,
+      milestoneDate: null,
+      status: "",
+      responsible: "",
+      progress: null,
+      order: null,
+      source: source || {},
+      fallbackAliases: {},
+      rawRows: []
+    };
+  }
+
+  function mergeNodeData(node, data) {
+    if (!node.rawRows.includes(data.displayRowId)) node.rawRows.push(data.displayRowId);
+    if (data.sourceIndex < node.sourceIndex) node.sourceIndex = data.sourceIndex;
+    if (!node.firstDisplayRowId && data.displayRowId) node.firstDisplayRowId = data.displayRowId;
+
+    if (data.startDate || data.endDate) {
+      node.startDate = data.startDate || node.startDate;
+      node.endDate = data.endDate || node.endDate;
+      node.explicitDates = true;
+    }
+    if (!node.status && data.status) node.status = data.status;
+    if (!node.responsible && data.responsible) node.responsible = data.responsible;
+    if (node.progress == null && data.progress != null) node.progress = data.progress;
+    if (node.order == null && data.order != null) node.order = data.order;
+
+    node.source = {
+      tableId: node.source.tableId || data.source.tableId || null,
+      rowId: node.source.rowId != null ? node.source.rowId : data.source.rowId,
+      startCol: node.source.startCol || data.source.startCol || null,
+      endCol: node.source.endCol || data.source.endCol || null,
+      progressCol: node.source.progressCol || data.source.progressCol || null
+    };
+    node.fallbackAliases = data.fallbackAliases || node.fallbackAliases;
   }
 
   function buildLogicalRecords(records) {
-    const result = [];
+    const nodes = new Map();
+    const roots = [];
+    const selectorAliases = ["selector", "include", "visible"];
+    const orderAliases = ["order", "sort", "rank"];
 
-    for (const raw of records) {
+    for (const [idx, raw] of (records || []).entries()) {
       if (!raw) continue;
       const mapped = grist.mapColumnNames(raw, { mappings: latestMappings });
       if (!mapped) continue;
 
-      const selectorRaw = (mapped.selector || "").toString().trim().toUpperCase();
-      if (selectorRaw && selectorRaw !== "O" && selectorRaw !== "1" && selectorRaw !== "TRUE") {
-        continue;
-      }
+      const selectorRaw = String(mappedValue(mapped, selectorAliases) || "").trim().toUpperCase();
+      if (selectorRaw && !["O", "Y", "YES", "1", "TRUE", "VRAI"].includes(selectorRaw)) continue;
 
-      const parentRef = parseRefValue(mapped.parent);
-      const parentVal = (parentRef.label || "").toString().trim();
-      const childVal = (mapped.child || "").toString().trim();
-      const startDate = normalizeDate(mapped.start);
-      const endDate = normalizeDate(mapped.end);
-      const parentStartDate = normalizeDate(mapped.parentStart);
-      const parentEndDate = normalizeDate(mapped.parentEnd);
-      const order = mapped.order != null && !isNaN(mapped.order) ? Number(mapped.order) : null;
+      const displayRowId = raw.id || raw.Id || raw.ID;
+      let parentId = null;
+      const pathLabels = [];
 
-      const hasParent = !!parentVal;
-      const hasChild = !!childVal;
-      const kind = hasParent && hasChild ? "hierarchical" : "leaf";
-
-      let isMilestone = false;
-      let milestoneDate = null;
-      if (!startDate && endDate) {
-        isMilestone = true;
-        milestoneDate = endDate;
-      }
-
-      const parentLabel = hasParent ? parentVal : "";
-      const childLabel = hasChild ? childVal : hasParent ? parentVal : "(Sans nom)";
-
-      result.push({
-        rowId: raw.id || raw.Id || raw.ID,
-        kind,
-        parentKey: (parentRef.rowId != null ? `ref:${parentRef.rowId}` : parentVal) || "",
-        parentRowId: parentRef.rowId,
-        parentTableId: parentRef.tableId,
-        parentLabel,
-        childLabel,
-        startDate,
-        endDate,
-        parentStartDate,
-        parentEndDate,
-        isMilestone,
-        milestoneDate,
-        priority: mapped.priority || "",
-        status: mapped.status || "",
-        respPol: mapped.respPol || "",
-        respOp: mapped.respOp || "",
-        respChild: mapped.respChild || "",
-        selector: mapped.selector || "",
-        sourceRowId: Number(mapped.sourceRowId ?? mapped.sourceId ?? mapped.masterRowId) || null,
-        sourceTableId: (mapped.sourceTableId || mapped.sourceTable || "").toString().trim() || null,
-        order
-      });
-    }
-
-    return result;
-  }
-
-  async function loadParentDateMap(records) {
-    const out = new Map();
-    if (!Array.isArray(records) || !records.length) return out;
-
-    const parentTableIdFromData =
-      records.find((r) => r && r.parentTableId)?.parentTableId || null;
-    const parentTableId = manualParentMapping.enabled && manualParentMapping.parentTableId
-      ? manualParentMapping.parentTableId
-      : (parentTableIdFromData || await resolveParentTableIdFromMapping());
-    currentParentSource = parentTableIdFromData ? "data" : "mapping";
-    if (!parentTableId) {
-      currentParentTableId = null;
-      currentParentStartColId = null;
-      currentParentEndColId = null;
-      currentParentSource = null;
-      return out;
-    }
-
-    try {
-      const table = await grist.docApi.fetchTable(parentTableId);
-      const colIds = await getTableColumnIds(parentTableId);
-      if (!colIds.length) return out;
-
-      const byNorm = new Map(colIds.map((c) => [String(c).toLowerCase().trim(), c]));
-      const pickCol = (candidates) => {
-        for (const c of candidates) {
-          const k = c.toLowerCase().trim();
-          if (byNorm.has(k)) return byNorm.get(k);
+      for (const levelInfo of LEVELS) {
+        const level = levelInfo.level;
+        const cfg = LEVEL_ALIASES[level];
+        const nameValue = mappedValue(mapped, cfg.name);
+        const ref = parseRefValue(nameValue);
+        const label = (ref.label || "").trim();
+        if (!label) {
+          if (levelInfo.required) break;
+          continue;
         }
-        return null;
-      };
 
-      const startColId = manualParentMapping.enabled && manualParentMapping.parentStartColId ? manualParentMapping.parentStartColId : pickCol([
-        "Date début parent",
-        "Date debut parent",
-        "parentStart",
-        "start",
-        "date_debut",
-        "date_debut_parent"
-      ]);
-      const endColId = manualParentMapping.enabled && manualParentMapping.parentEndColId ? manualParentMapping.parentEndColId : pickCol([
-        "Date fin parent",
-        "parentEnd",
-        "end",
-        "date_fin",
-        "date_fin_parent"
-      ]);
+        pathLabels.push(label);
+        const source = {
+          tableId: coalesce(mappedValue(mapped, cfg.sourceTable), ref.tableId),
+          rowId: Number(coalesce(mappedValue(mapped, cfg.sourceRow), ref.rowId)) || null,
+          startCol: mappedValue(mapped, cfg.sourceStartCol),
+          endCol: mappedValue(mapped, cfg.sourceEndCol),
+          progressCol: mappedValue(mapped, cfg.sourceProgressCol)
+        };
+        const nodeId = makeNodeId(level, pathLabels, ref, source);
 
-      currentParentTableId = parentTableId;
-      currentParentStartColId = startColId;
-      currentParentEndColId = endColId;
-      if (!startColId && !endColId) return out;
-
-      for (const row of table) {
-        const rowId = Number(row.id);
-        if (!Number.isFinite(rowId)) continue;
-        out.set(rowId, {
-          start: normalizeDate(startColId ? row[startColId] : null),
-          end: normalizeDate(endColId ? row[endColId] : null)
-        });
-      }
-    } catch (err) {
-      console.warn("Impossible de charger les dates parent depuis la table référencée", err);
-      currentParentTableId = parentTableId;
-      currentParentStartColId = null;
-      currentParentEndColId = null;
-    }
-
-    return out;
-  }
-
-  async function enrichRecordsWithParentDates(records) {
-    const parentDates = await loadParentDateMap(records);
-    if (!parentDates.size) return records;
-    for (const r of records) {
-      if (r.parentRowId == null) continue;
-      const pd = parentDates.get(Number(r.parentRowId));
-      if (!pd) continue;
-      if (!r.parentStartDate && pd.start) r.parentStartDate = pd.start;
-      if (!r.parentEndDate && pd.end) r.parentEndDate = pd.end;
-    }
-    return records;
-  }
-
-  function groupData(records) {
-    parentGroups = [];
-    leafTasks = [];
-    const groupsMap = new Map();
-
-    records.forEach((r, idx) => {
-      r.sourceIndex = idx;
-    });
-
-    for (const r of records) {
-      if (r.kind === "hierarchical") {
-        const key = r.parentKey || "(Sans parent)";
-        if (!groupsMap.has(key)) {
-          groupsMap.set(key, {
-            parentKey: key,
-            parentLabel: r.parentLabel || key || "(Sans parent)",
-            parentRowId: r.parentRowId || null,
-            parentTableId: r.parentTableId || null,
-            children: [],
-            aggStart: null,
-            aggEnd: null,
-            explicitParentStart: null,
-            explicitParentEnd: null,
-            hasOnlyMilestones: false,
-            onlySingleMilestone: false,
-            order: null
+        if (!nodes.has(nodeId)) {
+          const node = createEmptyNode({
+            id: nodeId,
+            level,
+            label,
+            parentId,
+            sourceIndex: idx,
+            sourceRowId: displayRowId,
+            source
           });
+          nodes.set(nodeId, node);
+          if (parentId && nodes.has(parentId)) nodes.get(parentId).children.push(node);
+          else roots.push(node);
         }
-        groupsMap.get(key).children.push(r);
-      } else {
-        leafTasks.push(r);
+
+        const startDate = normalizeDate(mappedValue(mapped, cfg.start));
+        const endDate = normalizeDate(mappedValue(mapped, cfg.end));
+        mergeNodeData(nodes.get(nodeId), {
+          displayRowId,
+          sourceIndex: idx,
+          startDate,
+          endDate,
+          status: String(mappedValue(mapped, cfg.status) || ""),
+          responsible: String(mappedValue(mapped, cfg.responsible) || ""),
+          progress: parseProgress(mappedValue(mapped, cfg.progress)),
+          order: Number(mappedValue(mapped, orderAliases)) || null,
+          source,
+          fallbackAliases: { start: cfg.start[0], end: cfg.end[0], progress: cfg.progress[0] }
+        });
+
+        parentId = nodeId;
       }
     }
 
-    for (const g of groupsMap.values()) {
-      let minDate = null;
-      let maxDate = null;
-      let allMilestones = true;
-      let minOrder = null;
-
-      for (const c of g.children) {
-        if (!c.isMilestone) allMilestones = false;
-
-        if (c.order != null && !isNaN(c.order)) {
-          if (minOrder == null || c.order < minOrder) minOrder = c.order;
-        }
-
-        if (!g.explicitParentStart && c.parentStartDate) {
-          g.explicitParentStart = c.parentStartDate;
-        }
-        if (!g.explicitParentEnd && c.parentEndDate) {
-          g.explicitParentEnd = c.parentEndDate;
-        }
-
-        const ds = c.startDate || c.milestoneDate || c.endDate;
-        const de = c.endDate || c.milestoneDate || c.startDate;
-
-        if (ds && (!minDate || ds < minDate)) minDate = ds;
-        if (de && (!maxDate || de > maxDate)) maxDate = de;
+    function finalize(node) {
+      let min = node.startDate || null;
+      let max = node.endDate || node.startDate || null;
+      node.children.sort(sortNodes);
+      for (const child of node.children) {
+        finalize(child);
+        if (child.aggStart && (!min || child.aggStart < min)) min = child.aggStart;
+        if (child.aggEnd && (!max || child.aggEnd > max)) max = child.aggEnd;
+        if (!node.status && child.status) node.status = child.status;
+        if (!node.responsible && child.responsible) node.responsible = child.responsible;
       }
-
-      g.aggStart = g.explicitParentStart || minDate;
-      g.aggEnd = g.explicitParentEnd || maxDate;
-      g.hasOnlyMilestones = allMilestones && g.children.length > 0;
-      g.onlySingleMilestone =
-        g.children.length === 1 &&
-        g.children[0].isMilestone &&
-        g.hasOnlyMilestones;
-      g.order = minOrder;
-
-      g.children.sort((a, b) => {
-        const ao = a.order != null ? a.order : Infinity;
-        const bo = b.order != null ? b.order : Infinity;
-        if (ao !== bo) return ao - bo;
-        return a.sourceIndex - b.sourceIndex;
-      });
-
-      parentGroups.push(g);
+      node.aggStart = node.startDate || min;
+      node.aggEnd = node.endDate || max || min;
+      node.isMilestone = !node.startDate && !!node.endDate;
+      node.milestoneDate = node.isMilestone ? node.endDate : null;
+      return node;
     }
 
-    parentGroups.sort((a, b) => {
-      const ao = a.order != null ? a.order : Infinity;
-      const bo = b.order != null ? b.order : Infinity;
-      if (ao !== bo) return ao - bo;
-      const ai = gFirstIndex(a);
-      const bi = gFirstIndex(b);
-      return ai - bi;
-    });
-
-    leafTasks.sort((a, b) => {
-      const ao = a.order != null ? a.order : Infinity;
-      const bo = b.order != null ? b.order : Infinity;
-      if (ao !== bo) return ao - bo;
-      return a.sourceIndex - b.sourceIndex;
-    });
+    roots.sort(sortNodes).forEach(finalize);
+    nodeById = nodes;
+    allRecords = Array.from(nodes.values());
+    treeRoots = roots;
+    return allRecords;
   }
 
-  function gFirstIndex(group) {
-    if (!group || !Array.isArray(group.children) || !group.children.length) return Infinity;
-    return group.children[0].sourceIndex ?? Infinity;
+  function sortNodes(a, b) {
+    const ao = a.order != null ? a.order : Infinity;
+    const bo = b.order != null ? b.order : Infinity;
+    if (ao !== bo) return ao - bo;
+    return (a.sourceIndex ?? Infinity) - (b.sourceIndex ?? Infinity) || a.label.localeCompare(b.label, "fr");
   }
 
-  function computeGlobalRange(records) {
+  function computeGlobalRange(nodes) {
     let min = null;
     let max = null;
-    for (const r of records) {
-      const dates = [];
-      if (r.startDate) dates.push(r.startDate);
-      if (r.endDate) dates.push(r.endDate);
-      if (r.parentStartDate) dates.push(r.parentStartDate);
-      if (r.parentEndDate) dates.push(r.parentEndDate);
-      if (r.milestoneDate) dates.push(r.milestoneDate);
-      for (const d of dates) {
+    for (const n of nodes) {
+      for (const d of [n.startDate, n.endDate, n.aggStart, n.aggEnd, n.milestoneDate]) {
+        if (!d) continue;
         if (!min || d < min) min = d;
         if (!max || d > max) max = d;
       }
@@ -788,116 +507,631 @@
     return { min, max };
   }
 
-  function getNavigationBounds() {
-    if (!globalMinDate || !globalMaxDate) {
-      return { minAllowed: null, maxAllowed: null };
-    }
+  function isNodeExpanded(node) {
+    if (!node.children.length) return false;
+    return expandedNodes[node.id] !== false;
+  }
 
+  function buildTracks() {
+    const tracks = [];
+    function walk(node) {
+      tracks.push({ kind: "node", node });
+      if (!isNodeExpanded(node)) return;
+      if (compactChildren && node.children.length && node.children.every((c) => !c.children.length)) {
+        tracks.push({ kind: "compact", parent: node, nodes: node.children });
+      } else {
+        node.children.forEach(walk);
+      }
+    }
+    treeRoots.forEach(walk);
+    flatTracks = tracks;
+    return tracks;
+  }
+
+  function getNavigationBounds() {
+    if (!globalMinDate || !globalMaxDate) return { minAllowed: null, maxAllowed: null };
     if (zoomMode === "all") {
       return {
         minAllowed: new Date(globalMinDate.getFullYear() - 2, 0, 1),
         maxAllowed: new Date(globalMaxDate.getFullYear() + 2, 11, 31)
       };
     }
-
     const fullSpan = diffInDays(globalMinDate, globalMaxDate) + 1;
     const requested = ZOOMS[zoomMode]?.spanDays || fullSpan;
-    const span = Math.max(1, Math.min(requested, Math.max(fullSpan, requested)));
-    const marginDays = Math.max(15, span);
-
-    return {
-      minAllowed: addDays(globalMinDate, -marginDays),
-      maxAllowed: addDays(globalMaxDate, marginDays)
-    };
+    const marginDays = Math.max(15, requested);
+    return { minAllowed: addDays(globalMinDate, -marginDays), maxAllowed: addDays(globalMaxDate, marginDays) };
   }
 
-  function getShiftDaysForZoom() {
-    if (zoomMode === "day") return 3;
-    if (zoomMode === "week") return 14;
-    if (zoomMode === "month") return 90;
-    if (zoomMode === "year") return 365;
-    if (zoomMode === "all") return 365;
-    return 30;
-  }
-
-  function setVisibleRangeForZoom(centerOnToday = false) {
+  function setVisibleRangeForZoom(centerOnToday) {
     if (!globalMinDate || !globalMaxDate) {
       visibleStart = null;
       visibleEnd = null;
       return;
     }
-
-    const { minAllowed, maxAllowed } = getNavigationBounds();
-
     if (zoomMode === "all") {
       visibleStart = new Date(globalMinDate.getFullYear() - 1, 0, 1);
       visibleEnd = new Date(globalMaxDate.getFullYear() + 1, 11, 31);
       return;
     }
-
+    const span = ZOOMS[zoomMode]?.spanDays || 30;
     const fullSpan = diffInDays(globalMinDate, globalMaxDate) + 1;
-    const requested = ZOOMS[zoomMode]?.spanDays || fullSpan;
-    const span = Math.max(1, requested);
-
-    const center = centerOnToday
-      ? normalizeDate(new Date())
-      : addDays(globalMinDate, Math.floor(fullSpan / 2));
-
-    const offset = centerOnToday ? Math.floor(span * 0.25) : Math.floor(span / 2);
-    let start = addDays(center, -offset);
+    const center = centerOnToday ? normalizeDate(new Date()) : addDays(globalMinDate, Math.floor(fullSpan / 2));
+    let start = addDays(center, -Math.floor(span / 2));
     let end = addDays(start, span - 1);
+    const { minAllowed, maxAllowed } = getNavigationBounds();
+    if (start < minAllowed) { start = new Date(minAllowed.getTime()); end = addDays(start, span - 1); }
+    if (end > maxAllowed) { end = new Date(maxAllowed.getTime()); start = addDays(end, -span + 1); }
+    visibleStart = start;
+    visibleEnd = end;
+  }
 
-    if (start < minAllowed) {
-      start = new Date(minAllowed.getTime());
-      end = addDays(start, span - 1);
-    }
-    if (end > maxAllowed) {
-      end = new Date(maxAllowed.getTime());
-      start = addDays(end, -span + 1);
-    }
-
+  function keepOrRecomputeVisibleRange() {
+    if (!visibleStart || !visibleEnd) return setVisibleRangeForZoom(false);
+    const { minAllowed, maxAllowed } = getNavigationBounds();
+    if (!minAllowed || !maxAllowed) return setVisibleRangeForZoom(false);
+    const span = diffInDays(visibleStart, visibleEnd) + 1;
+    let start = new Date(visibleStart.getTime());
+    let end = new Date(visibleEnd.getTime());
+    if (start < minAllowed) { start = new Date(minAllowed.getTime()); end = addDays(start, span - 1); }
+    if (end > maxAllowed) { end = new Date(maxAllowed.getTime()); start = addDays(end, -span + 1); }
     visibleStart = start;
     visibleEnd = end;
   }
 
   function shiftVisibleRange(direction) {
     if (!visibleStart || !visibleEnd) return;
-
-    const { minAllowed, maxAllowed } = getNavigationBounds();
-    if (!minAllowed || !maxAllowed) return;
-
-    const step = getShiftDaysForZoom();
+    const step = zoomMode === "day" ? 7 : zoomMode === "week" ? 28 : zoomMode === "month" ? 90 : zoomMode === "year" ? 365 : Math.max(30, Math.round((diffInDays(visibleStart, visibleEnd) + 1) / 3));
     const delta = direction === "left" ? -step : step;
     const span = diffInDays(visibleStart, visibleEnd) + 1;
-
-    let start = addDays(visibleStart, delta);
-    let end = addDays(visibleEnd, delta);
-
-    if (zoomMode !== "all") {
-      if (diffInDays(start, end) + 1 !== span) {
-        end = addDays(start, span - 1);
-      }
-    }
-
-    if (start < minAllowed) {
-      start = new Date(minAllowed.getTime());
-      end = addDays(start, span - 1);
-    }
-    if (end > maxAllowed) {
-      end = new Date(maxAllowed.getTime());
-      start = addDays(end, -span + 1);
-    }
-
-    visibleStart = start;
-    visibleEnd = end;
+    visibleStart = addDays(visibleStart, delta);
+    visibleEnd = addDays(visibleEnd, delta);
+    const { minAllowed, maxAllowed } = getNavigationBounds();
+    if (visibleStart < minAllowed) { visibleStart = new Date(minAllowed.getTime()); visibleEnd = addDays(visibleStart, span - 1); }
+    if (visibleEnd > maxAllowed) { visibleEnd = new Date(maxAllowed.getTime()); visibleStart = addDays(visibleEnd, -span + 1); }
     saveState();
     render();
   }
 
+  function recomputeCellWidth(totalDays) {
+    const bodyWidth = timelineBodyEl?.clientWidth || timelineHeaderEl?.clientWidth || 800;
+    let cellWidth = 32;
+    if (zoomMode === "all") cellWidth = Math.max(2, Math.min(18, Math.floor(bodyWidth / Math.max(1, totalDays))));
+    else if (zoomMode === "year") cellWidth = Math.max(3, Math.min(10, Math.floor(bodyWidth / Math.max(1, totalDays))));
+    else if (zoomMode === "month") cellWidth = Math.max(9, Math.min(24, Math.floor(bodyWidth / Math.max(1, totalDays))));
+    else if (zoomMode === "week") cellWidth = Math.max(16, Math.min(32, Math.floor(bodyWidth / Math.max(1, totalDays))));
+    document.documentElement.style.setProperty("--cell-width", cellWidth + "px");
+    return { cellWidth, containerWidth: totalDays * cellWidth };
+  }
+
   function updateZoomButtons() {
-    document.querySelectorAll(".zoom-controls .btn").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.zoom === zoomMode);
+    document.querySelectorAll(".zoom-controls .btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.zoom === zoomMode));
+  }
+
+  function initColorFieldSelect() {
+    const fields = ["level", "name", "status", "responsible", "progress", "sourceTable", "start", "end"];
+    colorFieldSelect.innerHTML = "";
+    for (const f of fields) {
+      const opt = document.createElement("option");
+      opt.value = f;
+      opt.textContent = FIELD_LABELS[f] || f;
+      colorFieldSelect.appendChild(opt);
+    }
+    if (!fields.includes(colorField)) colorField = fields[0];
+    colorFieldSelect.value = colorField;
+  }
+
+  function colorValue(node) {
+    if (colorField === "level") return `Niveau ${node.level}`;
+    if (colorField === "name") return node.label;
+    if (colorField === "status") return node.status;
+    if (colorField === "responsible") return node.responsible;
+    if (colorField === "progress") return node.progress == null ? "" : `${Math.round(node.progress)}%`;
+    if (colorField === "sourceTable") return node.source.tableId || "";
+    if (colorField === "start") return node.aggStart ? toGristDateString(node.aggStart) : "";
+    if (colorField === "end") return node.aggEnd ? toGristDateString(node.aggEnd) : "";
+    return node.label;
+  }
+
+  function getColorForNode(node) {
+    if (colorField === "level") return node.level === 1 ? "#4f46e5" : node.level === 2 ? "#0ea5e9" : "#10b981";
+    if (colorField === "status") {
+      const s = String(node.status || "").trim().toLowerCase();
+      if (["terminé", "termine", "done", "clos", "clôturé", "cloture"].includes(s)) return "#10b981";
+      if (["en cours", "ongoing", "started"].includes(s)) return "#3b82f6";
+      if (["bloqué", "bloque", "blocked"].includes(s)) return "#ef4444";
+      if (["à faire", "a faire", "todo", "non démarré", "non demarre"].includes(s)) return "#64748b";
+    }
+    return PALETTE[hashStringToInt(colorValue(node)) % PALETTE.length];
+  }
+
+  function buildHeaders() {
+    for (const el of [yearsRowEl, monthsRowEl, weeksRowEl, daysRowEl]) {
+      el.innerHTML = "";
+      el.style.display = "none";
+      el.style.gridTemplateColumns = "";
+      el.style.position = "";
+      el.style.width = "";
+      el.style.height = "";
+    }
+    if (!visibleStart || !visibleEnd) return;
+    const totalDays = diffInDays(visibleStart, visibleEnd) + 1;
+    if (totalDays <= 0) return;
+    const { containerWidth } = recomputeCellWidth(totalDays);
+    const dates = Array.from({ length: totalDays }, (_, i) => addDays(visibleStart, i));
+    const today = normalizeDate(new Date());
+
+    if (zoomMode === "all") {
+      yearsRowEl.style.display = "block";
+      yearsRowEl.style.position = "relative";
+      yearsRowEl.style.width = containerWidth + "px";
+      yearsRowEl.style.height = "24px";
+      for (let y = visibleStart.getFullYear(); y <= visibleEnd.getFullYear(); y++) {
+        const segStart = y === visibleStart.getFullYear() ? visibleStart : startOfYear(new Date(y, 0, 1));
+        const segEnd = y === visibleEnd.getFullYear() ? visibleEnd : endOfYear(new Date(y, 0, 1));
+        const cell = document.createElement("div");
+        cell.className = "time-cell";
+        cell.textContent = String(y);
+        cell.style.position = "absolute";
+        cell.style.left = ((diffInDays(visibleStart, segStart) / totalDays) * containerWidth) + "px";
+        cell.style.width = (((diffInDays(segStart, segEnd) + 1) / totalDays) * containerWidth) + "px";
+        cell.style.height = "24px";
+        cell.style.display = "flex";
+        cell.style.alignItems = "center";
+        cell.style.justifyContent = "center";
+        yearsRowEl.appendChild(cell);
+      }
+    } else if (zoomMode === "year") {
+      monthsRowEl.style.display = "grid";
+      monthsRowEl.style.gridTemplateColumns = `repeat(${totalDays}, var(--cell-width))`;
+      addSegmentedHeader(monthsRowEl, dates, (d) => d.getMonth(), (d) => String(d.getMonth() + 1).padStart(2, "0"));
+    } else if (zoomMode === "month") {
+      monthsRowEl.style.display = "grid";
+      weeksRowEl.style.display = "grid";
+      monthsRowEl.style.gridTemplateColumns = weeksRowEl.style.gridTemplateColumns = `repeat(${totalDays}, var(--cell-width))`;
+      addSegmentedHeader(monthsRowEl, dates, (d) => `${d.getFullYear()}-${d.getMonth()}`, (d) => d.toLocaleDateString("fr-FR", { month: "short", year: "numeric" }));
+      addSegmentedHeader(weeksRowEl, dates, (d) => `${d.getFullYear()}-${isoWeekNumber(d)}`, (d) => "S" + isoWeekNumber(d).toString().padStart(2, "0"));
+    } else {
+      monthsRowEl.style.display = "grid";
+      daysRowEl.style.display = "grid";
+      monthsRowEl.style.gridTemplateColumns = daysRowEl.style.gridTemplateColumns = `repeat(${totalDays}, var(--cell-width))`;
+      addSegmentedHeader(monthsRowEl, dates, (d) => `${d.getFullYear()}-${d.getMonth()}`, (d) => d.toLocaleDateString("fr-FR", { month: "short", year: "numeric" }));
+      for (const d of dates) {
+        const cell = document.createElement("div");
+        cell.className = "time-cell" + (isWeekend(d) ? " weekend" : "") + (isSameDay(d, today) ? " today" : "");
+        cell.textContent = d.getDate().toString().padStart(2, "0");
+        daysRowEl.appendChild(cell);
+      }
+    }
+    currentPeriodEl.textContent = `${formatDate(visibleStart)} – ${formatDate(visibleEnd)}`;
+  }
+
+  function addSegmentedHeader(el, dates, keyFn, labelFn) {
+    let start = 0;
+    let current = keyFn(dates[0]);
+    for (let i = 0; i < dates.length; i++) {
+      const isLast = i === dates.length - 1;
+      const next = !isLast ? keyFn(dates[i + 1]) : null;
+      if (isLast || next !== current) {
+        const cell = document.createElement("div");
+        cell.className = "time-cell";
+        cell.textContent = labelFn(dates[i]);
+        cell.style.gridColumn = `${start + 1} / ${i + 2}`;
+        el.appendChild(cell);
+        start = i + 1;
+        current = next;
+      }
+    }
+  }
+
+  function buildSidebarMeta(node) {
+    const parts = [];
+    if (node.aggStart || node.aggEnd) parts.push(`${formatDateShort(node.aggStart || node.aggEnd)} – ${formatDateShort(node.aggEnd || node.aggStart)}`);
+    if (node.status) parts.push(node.status);
+    if (node.responsible) parts.push(node.responsible);
+    if (node.progress != null) parts.push(`${Math.round(node.progress)}%`);
+    if (node.source.tableId) parts.push(`↳ ${node.source.tableId}`);
+    return parts.join(" · ");
+  }
+
+  function renderTaskList() {
+    const tracks = buildTracks();
+    taskListEl.innerHTML = "";
+    taskCountEl.textContent = `${allRecords.length} élément(s)`;
+    if (!tracks.length) {
+      taskListEl.innerHTML = '<div class="empty">Aucun élément à afficher.</div>';
+      return;
+    }
+
+    for (const track of tracks) {
+      if (track.kind === "compact") {
+        const row = document.createElement("div");
+        row.className = `task-row child-row level-${Math.min(3, track.parent.level + 1)} compact-row`;
+        row.style.paddingLeft = `${16 + track.parent.level * 18}px`;
+        row.innerHTML = `<div class="task-info"><div class="task-name">${track.nodes.length} élément(s) regroupé(s)</div><div class="task-meta">${track.parent.label}</div></div>`;
+        taskListEl.appendChild(row);
+        continue;
+      }
+
+      const node = track.node;
+      const row = document.createElement("div");
+      row.className = `task-row ${node.children.length ? "parent-row" : "child-row"} level-${node.level}`;
+      row.style.paddingLeft = `${8 + (node.level - 1) * 18}px`;
+      row.dataset.nodeId = node.id;
+      row.dataset.kind = "node";
+
+      const toggle = document.createElement("button");
+      toggle.className = "parent-toggle";
+      toggle.textContent = node.children.length ? (isNodeExpanded(node) ? "▾" : "▸") : "";
+      toggle.disabled = !node.children.length;
+      toggle.addEventListener("click", (e) => {
+        e.stopPropagation();
+        expandedNodes[node.id] = !isNodeExpanded(node);
+        saveState();
+        render();
+      });
+
+      const info = document.createElement("div");
+      info.className = "task-info";
+      const main = document.createElement("div");
+      main.className = "task-name";
+      main.textContent = node.label;
+      const meta = document.createElement("div");
+      meta.className = "task-meta";
+      meta.textContent = buildSidebarMeta(node);
+      info.appendChild(main);
+      info.appendChild(meta);
+      row.appendChild(toggle);
+      row.appendChild(info);
+      taskListEl.appendChild(row);
+    }
+  }
+
+  function showTooltip(x, y, node, start, end) {
+    if (!tooltipEl) return;
+    tooltipEl.querySelector(".tooltip-title").textContent = node.label;
+    ttStartEl.textContent = formatDate(start);
+    ttEndEl.textContent = formatDate(end);
+    const lines = [
+      `<div><span>Niveau</span><span>${node.level}</span></div>`,
+      node.status ? `<div><span>Statut</span><span>${node.status}</span></div>` : "",
+      node.responsible ? `<div><span>Responsable</span><span>${node.responsible}</span></div>` : "",
+      node.progress != null ? `<div><span>Avancement</span><span>${Math.round(node.progress)}%</span></div>` : "",
+      node.source.tableId ? `<div><span>Source</span><span>${node.source.tableId}#${node.source.rowId || "?"}</span></div>` : ""
+    ].filter(Boolean);
+    ttExtraEl.innerHTML = lines.join("");
+    tooltipEl.classList.add("visible");
+    let left = x + 12;
+    let top = y + 10;
+    tooltipEl.style.left = left + "px";
+    tooltipEl.style.top = top + "px";
+    const rect = tooltipEl.getBoundingClientRect();
+    if (rect.right > window.innerWidth - 12) left = x - rect.width - 12;
+    if (rect.bottom > window.innerHeight - 12) top = window.innerHeight - rect.height - 12;
+    tooltipEl.style.left = Math.max(12, left) + "px";
+    tooltipEl.style.top = Math.max(12, top) + "px";
+  }
+
+  function hideTooltip() {
+    if (tooltipEl) tooltipEl.classList.remove("visible");
+  }
+
+  function renderTimeline() {
+    timelineGridEl.innerHTML = "";
+    if (!visibleStart || !visibleEnd) return;
+    const tracks = flatTracks.length ? flatTracks : buildTracks();
+    if (!tracks.length) return;
+    const totalDays = diffInDays(visibleStart, visibleEnd) + 1;
+    if (totalDays <= 0) return;
+    const { containerWidth } = recomputeCellWidth(totalDays);
+    const rowHeight = 34;
+    const totalHeight = tracks.length * rowHeight;
+    timelineGridEl.style.width = containerWidth + "px";
+    timelineGridEl.style.height = totalHeight + "px";
+    timelineGridEl.style.minHeight = totalHeight + "px";
+    timelineBodyEl.style.height = totalHeight + "px";
+    timelineBodyEl.style.minHeight = totalHeight + "px";
+
+    function dateToFrac(d) {
+      if (!d) return null;
+      const clamped = d < visibleStart ? visibleStart : d > visibleEnd ? visibleEnd : d;
+      return diffInDays(visibleStart, clamped) / totalDays;
+    }
+
+    for (let t = 0; t < tracks.length; t++) {
+      const row = document.createElement("div");
+      row.className = "grid-row";
+      row.style.width = containerWidth + "px";
+      for (let i = 0; i < totalDays; i++) {
+        const d = addDays(visibleStart, i);
+        const cell = document.createElement("div");
+        cell.className = "grid-cell" + (isWeekend(d) ? " weekend" : "");
+        row.appendChild(cell);
+      }
+      timelineGridEl.appendChild(row);
+    }
+
+    const today = normalizeDate(new Date());
+    const todayDiff = diffInDays(visibleStart, today);
+    if (todayDiff >= 0 && todayDiff < totalDays) {
+      const line = document.createElement("div");
+      line.className = "today-line";
+      line.style.left = (todayDiff * (containerWidth / Math.max(1, totalDays))) + "px";
+      timelineGridEl.appendChild(line);
+    }
+
+    function addNodeBar(trackIndex, node, hideLabel) {
+      const start = node.isMilestone ? node.milestoneDate : (node.startDate || node.aggStart || node.endDate);
+      const end = node.isMilestone ? node.milestoneDate : (node.endDate || node.aggEnd || start);
+      if (!start || !end || end < visibleStart || start > visibleEnd) return;
+
+      if (node.isMilestone && !node.startDate) {
+        const frac = dateToFrac(node.milestoneDate);
+        if (frac == null) return;
+        const x = frac * containerWidth;
+        const centerY = trackIndex * rowHeight + rowHeight / 2;
+        const m = document.createElement("div");
+        m.className = `gantt-milestone level-${node.level}`;
+        m.style.left = x.toFixed(1) + "px";
+        m.style.top = centerY.toFixed(1) + "px";
+        m.style.background = getColorForNode(node);
+        m.dataset.nodeId = node.id;
+        m.addEventListener("mousemove", (ev) => showTooltip(ev.clientX, ev.clientY, node, node.milestoneDate, node.milestoneDate));
+        m.addEventListener("mouseenter", (ev) => showTooltip(ev.clientX, ev.clientY, node, node.milestoneDate, node.milestoneDate));
+        m.addEventListener("mouseleave", hideTooltip);
+        attachMilestoneDrag(m);
+        timelineGridEl.appendChild(m);
+        if (labelsVisible && !hideLabel) {
+          const label = document.createElement("span");
+          label.className = "milestone-label";
+          label.textContent = node.label;
+          label.style.left = (x + 18) + "px";
+          label.style.top = centerY + "px";
+          timelineGridEl.appendChild(label);
+        }
+        return;
+      }
+
+      const s = normalizeDate(start);
+      const e = normalizeDate(end);
+      const leftFrac = dateToFrac(s);
+      const rightFrac = dateToFrac(e);
+      if (leftFrac == null || rightFrac == null) return;
+      const widthFrac = Math.max(0.01, (rightFrac - leftFrac) + (1 / totalDays));
+      const leftPx = leftFrac * containerWidth;
+      const widthPx = widthFrac * containerWidth;
+      const bar = document.createElement("div");
+      bar.className = `gantt-bar level-${node.level}` + (node.children.length ? " parent" : "");
+      bar.style.left = leftPx.toFixed(1) + "px";
+      bar.style.width = widthPx.toFixed(1) + "px";
+      bar.style.top = trackIndex * rowHeight + 8 + "px";
+      bar.style.background = getColorForNode(node);
+      bar.dataset.nodeId = node.id;
+      bar.dataset.start = s.toISOString();
+      bar.dataset.end = e.toISOString();
+      bar.dataset.explicitDates = node.explicitDates ? "1" : "";
+      if (node.progress != null) {
+        const progress = document.createElement("span");
+        progress.className = "bar-progress";
+        progress.style.width = Math.round(node.progress) + "%";
+        bar.appendChild(progress);
+      }
+      if (labelsVisible && !hideLabel) {
+        const label = document.createElement("span");
+        label.className = widthPx >= 110 ? "bar-label inside" : "bar-label outside";
+        label.textContent = node.label;
+        bar.appendChild(label);
+      }
+      bar.addEventListener("mousemove", (ev) => {
+        setBarCursor(bar, ev);
+        showTooltip(ev.clientX, ev.clientY, node, s, e);
+      });
+      bar.addEventListener("mouseenter", (ev) => showTooltip(ev.clientX, ev.clientY, node, s, e));
+      bar.addEventListener("mouseleave", () => { bar.style.cursor = "default"; hideTooltip(); });
+      attachBarDrag(bar);
+      timelineGridEl.appendChild(bar);
+    }
+
+    for (let i = 0; i < tracks.length; i++) {
+      const track = tracks[i];
+      if (track.kind === "node") addNodeBar(i, track.node, false);
+      else if (track.kind === "compact") track.nodes.forEach((node) => addNodeBar(i, node, true));
+    }
+  }
+
+  function setBarCursor(bar, e) {
+    const rect = bar.getBoundingClientRect();
+    if (e.clientX - rect.left < 8 || rect.right - e.clientX < 8) bar.style.cursor = "ew-resize";
+    else bar.style.cursor = "grab";
+  }
+
+  function attachBarDrag(bar) {
+    bar.addEventListener("mousedown", (e) => {
+      if (e.button !== 0 || !allowTimelineDateEdit) return;
+      const node = nodeById.get(bar.dataset.nodeId);
+      if (!node || !node.explicitDates) {
+        showToast("Cette barre est agrégée : mappez les dates/source du niveau pour l’éditer.", "error");
+        return;
+      }
+      e.preventDefault();
+      hideTooltip();
+      const rect = bar.getBoundingClientRect();
+      const totalDays = diffInDays(visibleStart, visibleEnd) + 1;
+      const containerWidth = timelineBodyEl.clientWidth || timelineHeaderEl.clientWidth || rect.width;
+      dragState.pxPerDay = containerWidth / Math.max(1, totalDays);
+      dragState.active = true;
+      dragState.bar = bar;
+      dragState.milestone = null;
+      dragState.nodeId = node.id;
+      dragState.originalStart = normalizeDate(bar.dataset.start);
+      dragState.originalEnd = normalizeDate(bar.dataset.end);
+      dragState.startX = e.clientX;
+      const offsetX = e.clientX - rect.left;
+      if (offsetX < 8) dragState.type = "resize-left";
+      else if (rect.right - e.clientX < 8) dragState.type = "resize-right";
+      else dragState.type = "move";
+      showDragBubble(`${formatDate(dragState.originalStart)} → ${formatDate(dragState.originalEnd)}<span class="muted">édition</span>`, e.clientX, rect.top + rect.height / 2);
+      document.addEventListener("mousemove", onDragMove);
+      document.addEventListener("mouseup", onDragEnd);
     });
+  }
+
+  function attachMilestoneDrag(m) {
+    m.addEventListener("mousedown", (e) => {
+      if (e.button !== 0 || !allowTimelineDateEdit) return;
+      const node = nodeById.get(m.dataset.nodeId);
+      if (!node || !node.source.rowId) return;
+      e.preventDefault();
+      hideTooltip();
+      const rect = m.getBoundingClientRect();
+      const totalDays = diffInDays(visibleStart, visibleEnd) + 1;
+      const containerWidth = timelineBodyEl.clientWidth || timelineHeaderEl.clientWidth || rect.width;
+      dragState.pxPerDay = containerWidth / Math.max(1, totalDays);
+      dragState.active = true;
+      dragState.bar = null;
+      dragState.milestone = m;
+      dragState.nodeId = node.id;
+      dragState.originalMilestoneDate = new Date(node.milestoneDate.getTime());
+      dragState.type = "move-milestone";
+      dragState.startX = e.clientX;
+      showDragBubble(`${formatDate(node.milestoneDate)}<span class="muted">jalon</span>`, e.clientX, rect.top + rect.height / 2);
+      document.addEventListener("mousemove", onDragMove);
+      document.addEventListener("mouseup", onDragEnd);
+    });
+  }
+
+  function onDragMove(e) {
+    if (!dragState.active) return;
+    e.preventDefault();
+    const deltaDays = Math.round((e.clientX - dragState.startX) / dragState.pxPerDay);
+    const totalDays = diffInDays(visibleStart, visibleEnd) + 1;
+    const containerWidth = timelineBodyEl.clientWidth || timelineHeaderEl.clientWidth;
+    if (!containerWidth || !totalDays) return;
+
+    if (dragState.bar) {
+      let newStart = new Date(dragState.originalStart.getTime());
+      let newEnd = new Date(dragState.originalEnd.getTime());
+      if (dragState.type === "move") {
+        newStart = addDays(newStart, deltaDays);
+        newEnd = addDays(newEnd, deltaDays);
+      } else if (dragState.type === "resize-left") {
+        newStart = addDays(newStart, deltaDays);
+        if (newStart > newEnd) newStart = new Date(newEnd.getTime());
+      } else if (dragState.type === "resize-right") {
+        newEnd = addDays(newEnd, deltaDays);
+        if (newEnd < newStart) newEnd = new Date(newStart.getTime());
+      }
+      const leftFrac = diffInDays(visibleStart, newStart) / totalDays;
+      const rightFrac = diffInDays(visibleStart, newEnd) / totalDays;
+      const widthFrac = Math.max(0.01, (rightFrac - leftFrac) + (1 / totalDays));
+      dragState.bar.style.left = (leftFrac * containerWidth).toFixed(1) + "px";
+      dragState.bar.style.width = (widthFrac * containerWidth).toFixed(1) + "px";
+      dragState.bar.dataset.start = newStart.toISOString();
+      dragState.bar.dataset.end = newEnd.toISOString();
+      const rect = dragState.bar.getBoundingClientRect();
+      showDragBubble(`${formatDate(newStart)} → ${formatDate(newEnd)}<span class="muted">édition</span>`, e.clientX, rect.top + rect.height / 2);
+    } else if (dragState.milestone) {
+      const newDate = addDays(dragState.originalMilestoneDate, deltaDays);
+      const x = (diffInDays(visibleStart, newDate) / totalDays) * containerWidth;
+      dragState.milestone.style.left = x.toFixed(1) + "px";
+      const rect = dragState.milestone.getBoundingClientRect();
+      showDragBubble(`${formatDate(newDate)}<span class="muted">jalon</span>`, e.clientX, rect.top + rect.height / 2);
+    }
+  }
+
+  async function onDragEnd(e) {
+    if (!dragState.active) return;
+    e.preventDefault();
+    document.removeEventListener("mousemove", onDragMove);
+    document.removeEventListener("mouseup", onDragEnd);
+    hideDragBubble();
+
+    try {
+      const node = nodeById.get(dragState.nodeId);
+      if (!node) return;
+      if (dragState.type === "move-milestone") {
+        const deltaDays = Math.round((e.clientX - dragState.startX) / dragState.pxPerDay);
+        const newDate = addDays(dragState.originalMilestoneDate, deltaDays);
+        await updateNodeDates(node, null, newDate);
+      } else {
+        await updateNodeDates(node, normalizeDate(dragState.bar.dataset.start), normalizeDate(dragState.bar.dataset.end));
+      }
+      showToast("Dates mises à jour dans la table source", "success");
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Erreur lors de la mise à jour", "error");
+    } finally {
+      dragState.active = false;
+      dragState.type = null;
+      dragState.bar = null;
+      dragState.milestone = null;
+      dragState.nodeId = null;
+    }
+  }
+
+  function buildFallbackPayload(node, newStart, newEnd) {
+    if (!latestMappings || !node.firstDisplayRowId) return null;
+    const aliasValues = { id: node.firstDisplayRowId };
+    if (newStart && node.fallbackAliases.start) aliasValues[node.fallbackAliases.start] = toGristDateString(newStart);
+    if (newEnd && node.fallbackAliases.end) aliasValues[node.fallbackAliases.end] = toGristDateString(newEnd);
+    const mapped = grist.mapColumnNamesBack(aliasValues, { mappings: latestMappings });
+    if (!mapped || typeof mapped !== "object") return null;
+    const id = mapped.id;
+    const fields = cleanRecordForUpdate(mapped);
+    if (id == null || !Object.keys(fields).length) return null;
+    return { id, fields };
+  }
+
+  async function updateNodeDates(node, newStart, newEnd) {
+    const fields = {};
+    if (newStart && node.source.startCol) fields[node.source.startCol] = toGristDateString(newStart);
+    if (newEnd && node.source.endCol) fields[node.source.endCol] = toGristDateString(newEnd);
+
+    if (node.source.tableId && node.source.rowId != null && Object.keys(fields).length) {
+      await grist.docApi.applyUserActions([["UpdateRecord", node.source.tableId, node.source.rowId, fields]]);
+      setDebugSyncMode("docApi.applyUserActions (vraie table source)");
+      setDebugAction(`Update ${node.source.tableId}#${node.source.rowId}: ${Object.keys(fields).join(", ")}`);
+      return;
+    }
+
+    const fallback = buildFallbackPayload(node, newStart, newEnd);
+    if (fallback) {
+      try {
+        await grist.selectedTable.update([fallback]);
+        setDebugSyncMode("selectedTable.update (fallback mapping)");
+        setDebugAction(`Update ligne consolidée ${fallback.id}`);
+      } catch (err) {
+        if (!currentTableId) throw err;
+        await grist.docApi.applyUserActions([["UpdateRecord", currentTableId, fallback.id, fallback.fields]]);
+        setDebugSyncMode("docApi.applyUserActions (fallback table sélectionnée)");
+        setDebugAction(`Update ${currentTableId}#${fallback.id}`);
+      }
+      return;
+    }
+
+    throw new Error("Aucune cible d’écriture. Mappez table source, id source et colonnes début/fin du niveau.");
+  }
+
+  function refreshTableInfo() {
+    const mappedCols = latestMappings && latestMappings.columns ? Object.keys(latestMappings.columns).length : latestMappings ? Object.keys(latestMappings).length : 0;
+    const routed = allRecords.filter((n) => n.source.tableId && n.source.rowId != null).length;
+    mappingInfoEl.textContent = `Mapping actif : ${currentMappingsOk ? "oui" : "non"}, table liée = ${currentTableId || "inconnue"}, mappings reçus = ${mappedCols}, niveaux = 1/2/3, écritures routées = ${routed}/${allRecords.length}`;
+    setDebugSyncMode(latestWriteSummary);
+  }
+
+  function render() {
+    if (!allRecords.length) {
+      taskListEl.innerHTML = '<div class="empty">En attente de données ou du mapping niveau 1…</div>';
+      timelineGridEl.innerHTML = "";
+      yearsRowEl.innerHTML = monthsRowEl.innerHTML = weeksRowEl.innerHTML = daysRowEl.innerHTML = "";
+      currentPeriodEl.textContent = "–";
+      taskCountEl.textContent = "";
+      return;
+    }
+    initColorFieldSelect();
+    buildHeaders();
+    renderTaskList();
+    renderTimeline();
+    refreshTableInfo();
   }
 
   document.querySelectorAll(".zoom-controls .btn").forEach((btn) => {
@@ -912,1541 +1146,159 @@
 
   prevBtn.addEventListener("click", () => shiftVisibleRange("left"));
   nextBtn.addEventListener("click", () => shiftVisibleRange("right"));
-  todayBtn.addEventListener("click", () => {
-    setVisibleRangeForZoom(true);
-    saveState();
-    render();
-  });
-
-  function keepOrRecomputeVisibleRange() {
-    if (!visibleStart || !visibleEnd) {
-      setVisibleRangeForZoom(false);
-      return;
-    }
-    const { minAllowed, maxAllowed } = getNavigationBounds();
-    if (!minAllowed || !maxAllowed) {
-      setVisibleRangeForZoom(false);
-      return;
-    }
-
-    const span = diffInDays(visibleStart, visibleEnd) + 1;
-    let start = new Date(visibleStart.getTime());
-    let end = new Date(visibleEnd.getTime());
-
-    if (start < minAllowed) {
-      start = new Date(minAllowed.getTime());
-      end = addDays(start, span - 1);
-    }
-    if (end > maxAllowed) {
-      end = new Date(maxAllowed.getTime());
-      start = addDays(end, -span + 1);
-    }
-
-    if (start > end) {
-      setVisibleRangeForZoom(false);
-      return;
-    }
-
-    visibleStart = start;
-    visibleEnd = end;
-  }
-
+  todayBtn.addEventListener("click", () => { setVisibleRangeForZoom(true); saveState(); render(); });
   toggleSidebarBtn.addEventListener("click", () => {
     const collapsed = ganttContainer.classList.toggle("sidebar-collapsed");
     toggleSidebarBtn.textContent = collapsed ? "Afficher liste" : "Masquer liste";
   });
-
   toggleLabelsBtn.addEventListener("click", () => {
     labelsVisible = !labelsVisible;
     toggleLabelsBtn.textContent = labelsVisible ? "Masquer labels" : "Afficher labels";
     saveState();
     render();
   });
-
-  function refreshDateEditButton() {
-    toggleDateEditBtn.textContent = allowTimelineDateEdit
-      ? "Dates: édition autorisée"
-      : "Dates: édition bloquée";
-    toggleDateEditBtn.classList.toggle("active", allowTimelineDateEdit);
-  }
-
+  groupChildrenBtn.addEventListener("click", () => {
+    compactChildren = !compactChildren;
+    groupChildrenBtn.textContent = compactChildren ? "Niveaux bas : 1 ligne" : "Niveaux bas : multi-lignes";
+    saveState();
+    render();
+  });
   toggleDateEditBtn.addEventListener("click", () => {
     allowTimelineDateEdit = !allowTimelineDateEdit;
-  
-  async function initManualMappingUi() {
-    toggleMappingPanelBtn?.addEventListener("click", async () => {
-      const hidden = mappingPanelEl.hasAttribute("hidden");
-      if (hidden) {
-        mappingPanelEl.removeAttribute("hidden");
-        await loadMappingOptions();
-        parentRefColSelect.value = manualParentMapping.childParentColId || "";
-        parentTableSelect.value = manualParentMapping.parentTableId || "";
-        await refreshParentColumnOptions(parentTableSelect.value || null);
-        parentStartColSelect.value = manualParentMapping.parentStartColId || "";
-        parentEndColSelect.value = manualParentMapping.parentEndColId || "";
-      } else {
-        mappingPanelEl.setAttribute("hidden", "hidden");
-      }
-    });
-
-    parentTableSelect?.addEventListener("change", async (e) => {
-      manualParentMapping.enabled = true;
-      manualParentMapping.parentTableId = e.target.value || null;
-      await refreshParentColumnOptions(manualParentMapping.parentTableId);
-      saveState();
-    });
-
-    parentRefColSelect?.addEventListener("change", (e) => {
-      manualParentMapping.enabled = true;
-      manualParentMapping.childParentColId = e.target.value || null;
-      if (manualParentMapping.childParentColId) currentParentMappedColId = manualParentMapping.childParentColId;
-      saveState();
-    });
-
-    parentStartColSelect?.addEventListener("change", (e) => {
-      manualParentMapping.enabled = true;
-      manualParentMapping.parentStartColId = e.target.value || null;
-      saveState();
-    });
-
-    parentEndColSelect?.addEventListener("change", (e) => {
-      manualParentMapping.enabled = true;
-      manualParentMapping.parentEndColId = e.target.value || null;
-      saveState();
-    });
-
-    resetManualMappingBtn?.addEventListener("click", () => {
-      manualParentMapping = { enabled: false, childParentColId: null, parentTableId: null, parentStartColId: null, parentEndColId: null };
-      parentRefColSelect.value = ""; parentTableSelect.value = ""; parentStartColSelect.value = ""; parentEndColSelect.value = "";
-      saveState();
-      showToast("Mapping manuel réinitialisé", "success");
-    });
-  }
-
-  initManualMappingUi();
-  refreshDateEditButton();
+    toggleDateEditBtn.textContent = allowTimelineDateEdit ? "Dates: édition autorisée" : "Dates: édition bloquée";
+    toggleDateEditBtn.classList.toggle("active", allowTimelineDateEdit);
     saveState();
   });
-
-  groupChildrenBtn.addEventListener("click", () => {
-    childrenOnOneRow = !childrenOnOneRow;
-    groupChildrenBtn.textContent = childrenOnOneRow
-      ? "Enfants : 1 ligne"
-      : "Enfants : multi-lignes";
-    saveState();
-    render();
-  });
-
-  function isGroupExpanded(g) {
-    if (g.onlySingleMilestone && !(g.parentKey in expandedParents)) {
-      return false;
-    }
-    if (g.parentKey in expandedParents) {
-      return !!expandedParents[g.parentKey];
-    }
-    return true;
-  }
-
   expandAllBtn.addEventListener("click", () => {
-    parentGroups.forEach((g) => {
-      if (!g.onlySingleMilestone) expandedParents[g.parentKey] = true;
-    });
+    allRecords.forEach((n) => { if (n.children.length) expandedNodes[n.id] = true; });
     saveState();
     render();
   });
-
   collapseAllBtn.addEventListener("click", () => {
-    parentGroups.forEach((g) => {
-      expandedParents[g.parentKey] = false;
-    });
+    allRecords.forEach((n) => { if (n.children.length) expandedNodes[n.id] = false; });
     saveState();
     render();
   });
-
-  function recomputeCellWidth(totalDays) {
-    const containerWidth =
-      timelineBodyEl.clientWidth ||
-      timelineHeaderEl.clientWidth ||
-      window.innerWidth ||
-      600;
-    const cellWidth = containerWidth / Math.max(1, totalDays);
-    document.documentElement.style.setProperty("--cell-width", cellWidth + "px");
-    return { containerWidth, cellWidth };
-  }
-
-  function buildHeaders() {
-    yearsRowEl.innerHTML = "";
-    monthsRowEl.innerHTML = "";
-    weeksRowEl.innerHTML = "";
-    daysRowEl.innerHTML = "";
-
-    yearsRowEl.style.display = "none";
-    monthsRowEl.style.display = "none";
-    weeksRowEl.style.display = "none";
-    daysRowEl.style.display = "none";
-
-    yearsRowEl.style.position = "";
-    yearsRowEl.style.width = "";
-    yearsRowEl.style.height = "";
-    yearsRowEl.style.gridTemplateColumns = "";
-    monthsRowEl.style.gridTemplateColumns = "";
-    weeksRowEl.style.gridTemplateColumns = "";
-    daysRowEl.style.gridTemplateColumns = "";
-
-    if (!visibleStart || !visibleEnd) return;
-
-    const totalDays = diffInDays(visibleStart, visibleEnd) + 1;
-    if (totalDays <= 0) return;
-
-    const { containerWidth } = recomputeCellWidth(totalDays);
-
-    const dates = [];
-    for (let i = 0; i < totalDays; i++) dates.push(addDays(visibleStart, i));
-    const today = normalizeDate(new Date());
-
-    if (zoomMode === "all") {
-      yearsRowEl.style.display = "block";
-      yearsRowEl.style.position = "relative";
-      yearsRowEl.style.width = containerWidth + "px";
-      yearsRowEl.style.height = "24px";
-
-      const firstYear = visibleStart.getFullYear();
-      const lastYear = visibleEnd.getFullYear();
-
-      for (let year = firstYear; year <= lastYear; year++) {
-        const segStart = year === firstYear ? visibleStart : startOfYear(new Date(year, 0, 1));
-        const segEnd = year === lastYear ? visibleEnd : endOfYear(new Date(year, 0, 1));
-
-        const leftPx =
-          (diffInDays(visibleStart, segStart) / totalDays) * containerWidth;
-
-        const widthPx =
-          ((diffInDays(segStart, segEnd) + 1) / totalDays) * containerWidth;
-
-        const cell = document.createElement("div");
-        cell.className = "time-cell";
-        cell.textContent = String(year);
-        cell.style.position = "absolute";
-        cell.style.left = leftPx + "px";
-        cell.style.width = widthPx + "px";
-        cell.style.top = "0";
-        cell.style.height = "24px";
-        cell.style.display = "flex";
-        cell.style.alignItems = "center";
-        cell.style.justifyContent = "center";
-
-        yearsRowEl.appendChild(cell);
-      }
-    } else if (zoomMode === "year") {
-      monthsRowEl.style.display = "grid";
-      monthsRowEl.style.gridTemplateColumns = `repeat(${totalDays}, var(--cell-width))`;
-
-      let monthStartIndex = 0;
-      for (let i = 0; i < dates.length; i++) {
-        const isLast = i === dates.length - 1;
-        const m = dates[i].getMonth();
-        const nextM = !isLast ? dates[i + 1].getMonth() : null;
-        if (isLast || nextM !== m) {
-          const cell = document.createElement("div");
-          cell.className = "time-cell";
-          cell.textContent = (m + 1).toString().padStart(2, "0");
-          cell.style.gridColumn = `${monthStartIndex + 1} / ${i + 2}`;
-          monthsRowEl.appendChild(cell);
-          monthStartIndex = i + 1;
-        }
-      }
-    } else if (zoomMode === "month") {
-      monthsRowEl.style.display = "grid";
-      weeksRowEl.style.display = "grid";
-
-      monthsRowEl.style.gridTemplateColumns = `repeat(${totalDays}, var(--cell-width))`;
-      weeksRowEl.style.gridTemplateColumns = `repeat(${totalDays}, var(--cell-width))`;
-
-      let monthStartIndex = 0;
-      for (let i = 0; i < dates.length; i++) {
-        const isLast = i === dates.length - 1;
-        const m = dates[i].getMonth();
-        const nextM = !isLast ? dates[i + 1].getMonth() : null;
-        if (isLast || nextM !== m) {
-          const cell = document.createElement("div");
-          cell.className = "time-cell";
-          cell.textContent = dates[i].toLocaleDateString("fr-FR", {
-            month: "short",
-            year: "numeric"
-          });
-          cell.style.gridColumn = `${monthStartIndex + 1} / ${i + 2}`;
-          monthsRowEl.appendChild(cell);
-          monthStartIndex = i + 1;
-        }
-      }
-
-      let weekStartIndex = 0;
-      let currentWeek = isoWeekNumber(dates[0]);
-      let currentYear = dates[0].getFullYear();
-
-      for (let i = 0; i < dates.length; i++) {
-        const isLast = i === dates.length - 1;
-        const w = isoWeekNumber(dates[i]);
-        const y = dates[i].getFullYear();
-        const changes = w !== currentWeek || y !== currentYear;
-
-        if (changes || isLast) {
-          const endIndex = changes ? i : i + 1;
-          const cell = document.createElement("div");
-          cell.className = "time-cell";
-          cell.textContent = "S" + currentWeek.toString().padStart(2, "0");
-          cell.style.gridColumn = `${weekStartIndex + 1} / ${endIndex + 1}`;
-          weeksRowEl.appendChild(cell);
-
-          currentWeek = w;
-          currentYear = y;
-          weekStartIndex = i;
-        }
-      }
-    } else {
-      monthsRowEl.style.display = "grid";
-      daysRowEl.style.display = "grid";
-
-      monthsRowEl.style.gridTemplateColumns = `repeat(${totalDays}, var(--cell-width))`;
-      daysRowEl.style.gridTemplateColumns = `repeat(${totalDays}, var(--cell-width))`;
-
-      let monthStartIndex = 0;
-      for (let i = 0; i < dates.length; i++) {
-        const isLast = i === dates.length - 1;
-        const m = dates[i].getMonth();
-        const nextM = !isLast ? dates[i + 1].getMonth() : null;
-        if (isLast || nextM !== m) {
-          const cell = document.createElement("div");
-          cell.className = "time-cell";
-          cell.textContent = dates[i].toLocaleDateString("fr-FR", {
-            month: "short",
-            year: "numeric"
-          });
-          cell.style.gridColumn = `${monthStartIndex + 1} / ${i + 2}`;
-          monthsRowEl.appendChild(cell);
-          monthStartIndex = i + 1;
-        }
-      }
-
-      for (const d of dates) {
-        const cell = document.createElement("div");
-        const weekend = isWeekend(d);
-        const isTodayFlag = isSameDay(d, today);
-        cell.className =
-          "time-cell " +
-          (weekend ? " weekend" : "") +
-          (isTodayFlag ? " today" : "");
-        cell.textContent = d.getDate().toString().padStart(2, "0");
-        daysRowEl.appendChild(cell);
-      }
-    }
-
-    currentPeriodEl.textContent = `${formatDate(visibleStart)} – ${formatDate(visibleEnd)}`;
-  }
-
-  function buildTracks() {
-    const tracks = [];
-
-    if (!childrenOnOneRow) {
-      parentGroups.forEach((g) => {
-        tracks.push({ kind: "parent", group: g });
-        const expanded = isGroupExpanded(g);
-        if (expanded) {
-          g.children.forEach((c) => {
-            tracks.push({ kind: "child", group: g, task: c });
-          });
-        }
-      });
-    } else {
-      parentGroups.forEach((g) => {
-        const expanded = isGroupExpanded(g);
-        if (expanded && g.children.length) {
-          tracks.push({ kind: "groupChildren", group: g });
-        }
-      });
-    }
-
-    leafTasks.forEach((r) => {
-      tracks.push({ kind: "leaf", task: r });
-    });
-
-    return tracks;
-  }
-
-  function buildSidebarMeta(task) {
-    const parts = [];
-    if (task.respOp) parts.push(`Resp. op: ${task.respOp}`);
-    if (task.status) parts.push(`Stat.: ${task.status}`);
-    if (task.startDate || task.endDate || task.milestoneDate) {
-      parts.push(
-        `${formatDateShort(task.startDate || task.milestoneDate)} – ${formatDateShort(
-          task.endDate || task.milestoneDate
-        )}`
-      );
-    }
-    return parts.join(" · ") || "–";
-  }
-
-  function renderTaskList() {
-    taskListEl.innerHTML = "";
-
-    const tracks = buildTracks();
-    if (!tracks.length) {
-      const div = document.createElement("div");
-      div.className = "empty";
-      div.textContent = "Aucune ligne à afficher.";
-      taskListEl.appendChild(div);
-      taskCountEl.textContent = "";
-      return;
-    }
-
-    let rowCount = 0;
-
-    for (const t of tracks) {
-      if (t.kind === "parent") {
-        const g = t.group;
-        const parentRow = document.createElement("div");
-        parentRow.className = "task-row parent-row";
-        parentRow.draggable = true;
-        parentRow.dataset.kind = "parent";
-        parentRow.dataset.parentKey = g.parentKey;
-
-        const toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.className = "parent-toggle";
-        const expanded = isGroupExpanded(g);
-        toggle.textContent = expanded ? "▾" : "▸";
-        toggle.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          expandedParents[g.parentKey] = !expanded;
-          saveState();
-          render();
-        });
-
-        const info = document.createElement("div");
-        info.className = "task-info";
-
-        const main = document.createElement("div");
-        main.className = "task-name";
-        main.textContent = g.parentLabel;
-
-        const meta = document.createElement("div");
-        meta.className = "task-meta";
-        meta.textContent =
-          g.aggStart && g.aggEnd
-            ? `${formatDateShort(g.aggStart)} – ${formatDateShort(g.aggEnd)}`
-            : "Aucune date";
-
-        info.appendChild(main);
-        info.appendChild(meta);
-        parentRow.appendChild(toggle);
-        parentRow.appendChild(info);
-
-        attachSideDragHandlers(parentRow);
-        taskListEl.appendChild(parentRow);
-        rowCount++;
-      } else if (t.kind === "child") {
-        const c = t.task;
-        const row = document.createElement("div");
-        row.className = "task-row child-row";
-        row.draggable = true;
-        row.dataset.kind = "child";
-        row.dataset.parentKey = t.group.parentKey;
-        row.dataset.rowId = String(c.rowId);
-
-        const spacer = document.createElement("span");
-        spacer.style.display = "inline-block";
-        spacer.style.width = "16px";
-
-        const info = document.createElement("div");
-        info.className = "task-info";
-
-        const main = document.createElement("div");
-        main.className = "task-name";
-        main.textContent = c.childLabel;
-
-        const meta = document.createElement("div");
-        meta.className = "task-meta";
-        meta.textContent = buildSidebarMeta(c);
-
-        info.appendChild(main);
-        info.appendChild(meta);
-        row.appendChild(spacer);
-        row.appendChild(info);
-
-        attachSideDragHandlers(row);
-        taskListEl.appendChild(row);
-        rowCount++;
-      } else if (t.kind === "groupChildren") {
-        const g = t.group;
-        const row = document.createElement("div");
-        row.className = "task-row parent-row";
-        row.draggable = true;
-        row.dataset.kind = "parent";
-        row.dataset.parentKey = g.parentKey;
-
-        const info = document.createElement("div");
-        info.className = "task-info";
-
-        const main = document.createElement("div");
-        main.className = "task-name";
-        main.textContent = g.parentLabel;
-
-        const meta = document.createElement("div");
-        meta.className = "task-meta";
-        meta.textContent = `${g.children.length} élément(s) enfant`;
-
-        info.appendChild(main);
-        info.appendChild(meta);
-        row.appendChild(info);
-
-        attachSideDragHandlers(row);
-        taskListEl.appendChild(row);
-        rowCount++;
-      } else if (t.kind === "leaf") {
-        const r = t.task;
-        const row = document.createElement("div");
-        row.className = "task-row child-row";
-        row.draggable = true;
-        row.dataset.kind = "leaf";
-        row.dataset.rowId = String(r.rowId);
-
-        const spacer = document.createElement("span");
-        spacer.style.display = "inline-block";
-        spacer.style.width = "16px";
-
-        const info = document.createElement("div");
-        info.className = "task-info";
-
-        const main = document.createElement("div");
-        main.className = "task-name";
-        main.textContent = r.childLabel;
-
-        const meta = document.createElement("div");
-        meta.className = "task-meta";
-        meta.textContent = buildSidebarMeta(r);
-
-        info.appendChild(main);
-        info.appendChild(meta);
-        row.appendChild(spacer);
-        row.appendChild(info);
-
-        attachSideDragHandlers(row);
-        taskListEl.appendChild(row);
-        rowCount++;
-      }
-    }
-
-    taskCountEl.textContent = `${rowCount} lignes`;
-  }
-
-  function attachSideDragHandlers(rowEl) {
-    rowEl.addEventListener("dragstart", (e) => {
-      const kind = rowEl.dataset.kind;
-      if (kind !== "child" && kind !== "leaf" && kind !== "parent") return;
-
-      sideDragInfo = {
-        kind,
-        parentKey: rowEl.dataset.parentKey || null,
-        rowId: rowEl.dataset.rowId ? Number(rowEl.dataset.rowId) : null
-      };
-
-      rowEl.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-    });
-
-    rowEl.addEventListener("dragend", () => {
-      sideDragInfo = null;
-      document.querySelectorAll(".task-row").forEach((r) => {
-        r.classList.remove("dragging", "drag-over");
-      });
-    });
-
-    rowEl.addEventListener("dragover", (e) => {
-      if (!sideDragInfo) return;
-
-      const targetKind = rowEl.dataset.kind;
-      if (targetKind !== sideDragInfo.kind) return;
-
-      if (targetKind === "child") {
-        if ((rowEl.dataset.parentKey || "") !== (sideDragInfo.parentKey || "")) return;
-      }
-
-      e.preventDefault();
-      document.querySelectorAll(".task-row").forEach((r) => {
-        r.classList.remove("drag-over");
-      });
-      rowEl.classList.add("drag-over");
-    });
-
-    rowEl.addEventListener("drop", async (e) => {
-      e.preventDefault();
-      if (!sideDragInfo) return;
-
-      const targetKind = rowEl.dataset.kind;
-      if (targetKind !== sideDragInfo.kind) return;
-
-      try {
-        if (targetKind === "child") {
-          const targetRowId = Number(rowEl.dataset.rowId);
-          if ((rowEl.dataset.parentKey || "") !== (sideDragInfo.parentKey || "")) return;
-          if (targetRowId === sideDragInfo.rowId) return;
-          await reorderChildrenWithinParent(
-            sideDragInfo.parentKey,
-            sideDragInfo.rowId,
-            targetRowId
-          );
-          showToast("Ordre mis à jour", "success");
-        } else if (targetKind === "leaf") {
-          const targetRowId = Number(rowEl.dataset.rowId);
-          if (targetRowId === sideDragInfo.rowId) return;
-          await reorderLeafTasks(sideDragInfo.rowId, targetRowId);
-          showToast("Ordre mis à jour", "success");
-        } else if (targetKind === "parent") {
-          const targetParentKey = rowEl.dataset.parentKey || "";
-          if (targetParentKey === sideDragInfo.parentKey) return;
-          await reorderParentGroups(sideDragInfo.parentKey, targetParentKey);
-          showToast("Ordre des parents mis à jour", "success");
-        }
-      } catch (err) {
-        console.error(err);
-        showToast("Erreur lors de la mise à jour de l’ordre", "error");
-      } finally {
-        sideDragInfo = null;
-        document.querySelectorAll(".task-row").forEach((r) => {
-          r.classList.remove("dragging", "drag-over");
-        });
-      }
+  colorFieldSelect.addEventListener("change", (e) => { colorField = e.target.value; saveState(); render(); });
+  window.addEventListener("resize", () => { if (allRecords.length) render(); });
+
+  if (toggleMappingPanelBtn && mappingPanelEl) {
+    toggleMappingPanelBtn.textContent = "Aide mapping";
+    mappingPanelEl.innerHTML = `
+      <div><strong>Mapping multi-niveau</strong> : mappez au minimum <code>level1Name</code>. Les niveaux 2 et 3 sont optionnels.</div>
+      <div>Pour écrire dans les vraies tables sources, exposez pour chaque niveau : <code>levelNSourceTableId</code>, <code>levelNSourceRowId</code>, <code>levelNStartColId</code>, <code>levelNEndColId</code> (et éventuellement <code>levelNProgressColId</code>).</div>
+      <div>Exemple : Projets → Tâches → Sous-tâches avec <code>level1SourceTableId=Projets</code>, <code>level2SourceTableId=Taches</code>, <code>level3SourceTableId=Sous_taches</code>.</div>
+    `;
+    toggleMappingPanelBtn.addEventListener("click", () => {
+      if (mappingPanelEl.hasAttribute("hidden")) mappingPanelEl.removeAttribute("hidden");
+      else mappingPanelEl.setAttribute("hidden", "hidden");
     });
   }
 
-  async function refreshTableInfo() {
-    try {
-      currentTableId = await grist.selectedTable.getTableId();
-    } catch (e) {
-      currentTableId = null;
-    }
-
-    const mappedCols =
-      latestMappings && latestMappings.columns
-        ? Object.keys(latestMappings.columns).length
-        : latestMappings
-        ? Object.keys(latestMappings).length
-        : 0;
-
-    const parentInfo = currentParentTableId
-      ? ` | parentCol=${currentParentMappedColId || "non mappé"}, source=${currentParentSource || "?"}, table parent=${currentParentTableId}, début=${currentParentStartColId || "auto introuvable"}, fin=${currentParentEndColId || "auto introuvable"}`
-      : ` | parentCol=${currentParentMappedColId || "non mappé"}, table parent=introuvable`;
-    mappingInfoEl.textContent =
-      "Mapping actif : " +
-      (currentMappingsOk ? "oui" : "non") +
-      ", table enfant = " +
-      (currentTableId || "inconnue") +
-      ", mappings reçus = " +
-      mappedCols +
-      parentInfo;
-  }
-
-  function buildBackPayload(aliasValues) {
-    if (!latestMappings) {
-      throw new Error("Aucun mapping courant disponible pour remapper les colonnes.");
-    }
-
-    const mapped = grist.mapColumnNamesBack(aliasValues, {
-      mappings: latestMappings
-    });
-
-    if (!mapped || typeof mapped !== "object") {
-      throw new Error("Le remappage inverse des colonnes a échoué.");
-    }
-
-    const cleaned = cleanRecordForUpdate(mapped);
-    const { id, ...fields } = cleaned;
-
-    if (id == null) {
-      throw new Error("Payload sans id.");
-    }
-
-    return { id, fields };
-  }
-
-  function findSourceTargetForChildRow(childRowId) {
-    const rec = allRecords.find((r) => Number(r.rowId) === Number(childRowId));
-    if (!rec || rec.sourceRowId == null || !rec.sourceTableId) return null;
-    return { tableId: rec.sourceTableId, rowId: rec.sourceRowId };
-  }
-
-  async function updateRows(records) {
-    if (!records) return;
-
-    const arr = Array.isArray(records) ? records : [records];
-    const cleaned = arr.filter(
-      (r) => r && r.id != null && r.fields && Object.keys(r.fields).length > 0
-    );
-
-    if (!cleaned.length) {
-      console.warn("[GANTT DEBUG] Aucun champ modifiable à envoyer à Grist.");
-      return;
-    }
-
-    const routedActions = [];
-    const sameTableUpdates = [];
-
-    for (const rec of cleaned) {
-      const target = findSourceTargetForChildRow(rec.id);
-      if (target) {
-        routedActions.push(["UpdateRecord", target.tableId, target.rowId, rec.fields]);
-      } else {
-        sameTableUpdates.push(rec);
-      }
-    }
-
-    if (routedActions.length) {
-      await grist.docApi.applyUserActions(routedActions);
-      setDebugSyncMode("docApi.applyUserActions (source routing)");
-      setDebugAction(`Update routé source: ${routedActions.length} ligne(s)`);
-    }
-
-    if (!sameTableUpdates.length) return;
-
-    try {
-      await grist.selectedTable.update(sameTableUpdates);
-      setDebugSyncMode("selectedTable.update");
-      setDebugAction(`Update ${sameTableUpdates.length} ligne(s) via selectedTable.update`);
-    } catch (err) {
-      console.warn("[GANTT DEBUG] selectedTable.update a échoué, tentative alternative applyUserActions", err);
-      setDebugStatus("Fallback applyUserActions en cours…");
-
-      const actions = [];
-      for (const rec of sameTableUpdates) {
-        actions.push(["UpdateRecord", currentTableId, rec.id, rec.fields]);
-      }
-
-      await grist.docApi.applyUserActions(actions);
-      setDebugSyncMode("docApi.applyUserActions (fallback)");
-      setDebugAction(`Fallback appliqué sur ${sameTableUpdates.length} ligne(s)`);
-    }
-  }
-
-  async function updateChildDates(rowId, startDate, endDate) {
-    if (!rowId) return;
-    const aliasValues = { id: rowId };
-    if (startDate) aliasValues.start = toGristDateString(startDate);
-    if (endDate) aliasValues.end = toGristDateString(endDate);
-    const payload = buildBackPayload(aliasValues);
-    await updateRows(payload);
-  }
-
-  async function updateMilestoneDate(rowId, newDate) {
-    if (!rowId) return;
-    const aliasValues = { id: rowId };
-    if (newDate) aliasValues.end = toGristDateString(newDate);
-    const payload = buildBackPayload(aliasValues);
-    await updateRows(payload);
-  }
-
-  async function moveParentGroup(parentKey, originalChildren, deltaDays) {
-    if (!parentKey || !deltaDays) return;
-
-    const grp = parentGroups.find((g) => g.parentKey === parentKey);
-    if (grp && grp.parentRowId != null && grp.parentTableId && grp.explicitParentStart && grp.explicitParentEnd) {
-      const payload = { id: grp.parentRowId, fields: {} };
-      payload.fields["Date début parent"] = toGristDateString(addDays(grp.explicitParentStart, deltaDays));
-      payload.fields["Date fin parent"] = toGristDateString(addDays(grp.explicitParentEnd, deltaDays));
-      try {
-        await grist.docApi.applyUserActions([["UpdateRecord", grp.parentTableId, grp.parentRowId, payload.fields]]);
-        return;
-      } catch (err) {
-        console.warn("Mise à jour parent liée impossible, fallback enfants", err);
-      }
-    }
-
-    if (!originalChildren) return;
-
-    const updates = [];
-    for (const c of originalChildren) {
-      const aliasValues = { id: c.rowId };
-      if (c.startDate) aliasValues.start = toGristDateString(addDays(c.startDate, deltaDays));
-      if (c.endDate) aliasValues.end = toGristDateString(addDays(c.endDate, deltaDays));
-      updates.push(buildBackPayload(aliasValues));
-    }
-    if (updates.length) await updateRows(updates);
-  }
-
-  async function reorderChildrenWithinParent(parentKey, sourceRowId, targetRowId) {
-    const g = parentGroups.find((pg) => pg.parentKey === parentKey);
-    if (!g) return;
-
-    const arr = g.children.slice();
-    const fromIndex = arr.findIndex((c) => c.rowId === sourceRowId);
-    const toIndex = arr.findIndex((c) => c.rowId === targetRowId);
-    if (fromIndex < 0 || toIndex < 0) return;
-
-    const [moved] = arr.splice(fromIndex, 1);
-    arr.splice(toIndex, 0, moved);
-
-    const updates = arr.map((c, idx) =>
-      buildBackPayload({
-        id: c.rowId,
-        order: idx + 1
-      })
-    );
-
-    await updateRows(updates);
-  }
-
-  async function reorderLeafTasks(sourceRowId, targetRowId) {
-    const arr = leafTasks.slice();
-    const fromIndex = arr.findIndex((c) => c.rowId === sourceRowId);
-    const toIndex = arr.findIndex((c) => c.rowId === targetRowId);
-    if (fromIndex < 0 || toIndex < 0) return;
-
-    const [moved] = arr.splice(fromIndex, 1);
-    arr.splice(toIndex, 0, moved);
-
-    const updates = arr.map((c, idx) =>
-      buildBackPayload({
-        id: c.rowId,
-        order: idx + 1
-      })
-    );
-
-    await updateRows(updates);
-  }
-
-  async function reorderParentGroups(sourceParentKey, targetParentKey) {
-    const groups = parentGroups.slice();
-    const fromIndex = groups.findIndex((g) => g.parentKey === sourceParentKey);
-    const toIndex = groups.findIndex((g) => g.parentKey === targetParentKey);
-    if (fromIndex < 0 || toIndex < 0) return;
-
-    const [moved] = groups.splice(fromIndex, 1);
-    groups.splice(toIndex, 0, moved);
-
-    const updates = [];
-    let baseOrder = 1;
-
-    for (const g of groups) {
-      for (const child of g.children) {
-        updates.push(
-          buildBackPayload({
-            id: child.rowId,
-            order: baseOrder++
-          })
-        );
-      }
-    }
-
-    for (const leaf of leafTasks) {
-      updates.push(
-        buildBackPayload({
-          id: leaf.rowId,
-          order: baseOrder++
-        })
-      );
-    }
-
-    await updateRows(updates);
-  }
-
-  function renderTimeline() {
-    timelineGridEl.innerHTML = "";
-    if (!visibleStart || !visibleEnd) return;
-
-    const tracks = buildTracks();
-    if (!tracks.length) return;
-
-    const totalDays = diffInDays(visibleStart, visibleEnd) + 1;
-    if (totalDays <= 0) return;
-
-    const { containerWidth } = recomputeCellWidth(totalDays);
-    timelineGridEl.style.width = containerWidth + "px";
-
-    const rowHeight = 34;
-    const totalHeight = tracks.length * rowHeight;
-    timelineGridEl.style.height = totalHeight + "px";
-    timelineGridEl.style.minHeight = totalHeight + "px";
-    timelineBodyEl.style.height = totalHeight + "px";
-    timelineBodyEl.style.minHeight = totalHeight + "px";
-
-    const today = normalizeDate(new Date());
-    const milestoneLabelByTrack = new Map();
-
-    function dateToFrac(d) {
-      if (!d) return null;
-      const clamped =
-        d < visibleStart ? visibleStart : d > visibleEnd ? visibleEnd : d;
-      const daysFromStart = diffInDays(visibleStart, clamped);
-      return daysFromStart / totalDays;
-    }
-
-    function extrasFromTask(task, isParent) {
-      return {
-        parentLabel: task.parentLabel,
-        childLabel: isParent ? "" : task.childLabel,
-        status: task.status || "",
-        priority: task.priority || "",
-        respPol: task.respPol || "",
-        respOp: task.respOp || "",
-        respChild: isParent ? "" : (task.respChild || "")
-      };
-    }
-
-    function addGroupLabelAtRightmostVisibleItem(trackIndex, group) {
-      if (!labelsVisible || !group || !group.children || !group.children.length) return;
-
-      const centerY = trackIndex * rowHeight + rowHeight / 2;
-      let rightmostX = null;
-
-      for (const c of group.children) {
-        if (c.isMilestone && c.milestoneDate && !c.startDate) {
-          if (c.milestoneDate < visibleStart || c.milestoneDate > visibleEnd) continue;
-          const frac = dateToFrac(c.milestoneDate);
-          if (frac == null) continue;
-          const x = frac * containerWidth;
-          if (rightmostX == null || x > rightmostX) rightmostX = x;
-          continue;
-        }
-
-        const start = c.startDate || c.milestoneDate || c.endDate;
-        const end = c.endDate || start;
-        if (!start || !end) continue;
-
-        const s = normalizeDate(start);
-        const e = normalizeDate(end);
-        if (e < visibleStart || s > visibleEnd) continue;
-
-        const rightFrac = dateToFrac(e);
-        if (rightFrac == null) continue;
-        const x = (rightFrac + 1 / totalDays) * containerWidth;
-        if (rightmostX == null || x > rightmostX) rightmostX = x;
-      }
-
-      if (rightmostX == null) return;
-
-      const label = document.createElement("span");
-      label.className = "group-row-label";
-      label.textContent = group.parentLabel;
-      label.style.left = (rightmostX + 4) + "px";
-      label.style.top = centerY + "px";
-
-      timelineGridEl.appendChild(label);
-    }
-
-    function getMilestoneLabelYOffset(trackIndex, x) {
-      const placements = milestoneLabelByTrack.get(trackIndex) || [];
-      const threshold = 42;
-      let level = 0;
-
-      for (const p of placements) {
-        if (Math.abs(p.x - x) < threshold && p.level === level) {
-          level++;
-        }
-      }
-
-      placements.push({ x, level });
-      milestoneLabelByTrack.set(trackIndex, placements);
-
-      const offsets = [0, -10, 10, -18, 18];
-      return offsets[Math.min(level, offsets.length - 1)];
-    }
-
-    function addMilestone(trackIndex, task, isParent) {
-      const frac = dateToFrac(task.milestoneDate);
-      if (frac == null) return;
-
-      const x = frac * containerWidth;
-      const centerY = trackIndex * rowHeight + rowHeight / 2;
-
-      const m = document.createElement("div");
-      m.className = "gantt-milestone";
-      m.style.left = x.toFixed(1) + "px";
-      m.style.top = centerY.toFixed(1) + "px";
-      m.style.background = getColorForTask(task);
-      m.style.border = "1.5px solid #000";
-
-      m.dataset.role = isParent ? "parent-milestone" : "child-milestone";
-      if (!isParent) m.dataset.rowId = task.rowId;
-
-      const label = document.createElement("span");
-      label.className = "milestone-label";
-      label.textContent = isParent ? task.parentLabel : task.childLabel;
-
-      const hideMilestoneLabel =
-        !labelsVisible || (childrenOnOneRow && !isParent);
-
-      if (hideMilestoneLabel) {
-        label.style.display = "none";
-      }
-
-      const yOffset = getMilestoneLabelYOffset(trackIndex, x);
-      label.style.left = (x + 18) + "px";
-      label.style.top = (centerY + yOffset) + "px";
-
-      const extras = extrasFromTask(task, isParent);
-
-      m.addEventListener("mousemove", (ev) => {
-        showTooltip(
-          ev.clientX,
-          ev.clientY,
-          isParent ? task.parentLabel : task.childLabel,
-          task.milestoneDate,
-          task.milestoneDate,
-          extras
-        );
-      });
-      m.addEventListener("mouseenter", (ev) => {
-        showTooltip(
-          ev.clientX,
-          ev.clientY,
-          isParent ? task.parentLabel : task.childLabel,
-          task.milestoneDate,
-          task.milestoneDate,
-          extras
-        );
-      });
-      m.addEventListener("mouseleave", hideTooltip);
-
-      attachMilestoneDrag(m, task, isParent);
-      timelineGridEl.appendChild(m);
-      timelineGridEl.appendChild(label);
-    }
-
-    function addBar(trackIndex, task, opts) {
-      const { isParent, parentKey, forceLabelText, hideLabel } = opts || {};
-
-      if (task.isMilestone && task.milestoneDate && !task.startDate) {
-        addMilestone(trackIndex, task, isParent);
-        return;
-      }
-
-      const start = task.startDate || task.milestoneDate || task.endDate;
-      const end = task.endDate || start;
-      if (!start || !end) return;
-
-      const s = normalizeDate(start);
-      const e = normalizeDate(end);
-      if (e < visibleStart || s > visibleEnd) return;
-
-      const leftFrac = dateToFrac(s);
-      const rightFrac = dateToFrac(e);
-      if (leftFrac == null || rightFrac == null) return;
-
-      const widthFrac = Math.max(0.01, (rightFrac - leftFrac) + (1 / totalDays));
-      const leftPx = leftFrac * containerWidth;
-      const widthPx = widthFrac * containerWidth;
-
-      const bar = document.createElement("div");
-      bar.className = "gantt-bar" + (isParent ? " parent" : "");
-      bar.style.left = leftPx.toFixed(1) + "px";
-      bar.style.width = widthPx.toFixed(1) + "px";
-      bar.style.top = trackIndex * rowHeight + 8 + "px";
-
-      bar.dataset.role = isParent ? "parent" : "child";
-      if (isParent) {
-        bar.dataset.parentKey = parentKey;
-        bar.dataset.title = task.parentLabel;
-      } else {
-        bar.dataset.rowId = task.rowId;
-        bar.dataset.title = task.childLabel;
-      }
-      bar.dataset.start = s.toISOString();
-      bar.dataset.end = e.toISOString();
-      bar.style.background = getColorForTask(task);
-
-      const labelText = forceLabelText || (isParent ? task.parentLabel : task.childLabel);
-
-      if (!hideLabel) {
-        const labelSpan = document.createElement("span");
-        labelSpan.textContent = labelText;
-        labelSpan.className = widthPx >= 110 ? "bar-label inside" : "bar-label outside";
-        if (!labelsVisible) labelSpan.style.display = "none";
-        bar.appendChild(labelSpan);
-      }
-
-      const extras = extrasFromTask(task, isParent);
-
-      bar.addEventListener("mousemove", (ev) => {
-        setBarCursor(bar, ev);
-        showTooltip(ev.clientX, ev.clientY, bar.dataset.title, s, e, extras);
-      });
-      bar.addEventListener("mouseenter", (ev) => {
-        setBarCursor(bar, ev);
-        showTooltip(ev.clientX, ev.clientY, bar.dataset.title, s, e, extras);
-      });
-      bar.addEventListener("mouseleave", () => {
-        bar.style.cursor = "default";
-        hideTooltip();
-      });
-
-      attachBarDrag(bar);
-      timelineGridEl.appendChild(bar);
-    }
-
-    for (let t = 0; t < tracks.length; t++) {
-      const row = document.createElement("div");
-      row.className = "grid-row";
-      for (let i = 0; i < totalDays; i++) {
-        const d = addDays(visibleStart, i);
-        const cell = document.createElement("div");
-        cell.className = "grid-cell" + (isWeekend(d) ? " weekend" : "");
-        row.appendChild(cell);
-      }
-      timelineGridEl.appendChild(row);
-    }
-
-    const todayDiff = diffInDays(visibleStart, today);
-    if (todayDiff >= 0 && todayDiff < totalDays) {
-      const line = document.createElement("div");
-      line.className = "today-line";
-      const x = todayDiff * (containerWidth / Math.max(1, totalDays));
-      line.style.left = x + "px";
-      timelineGridEl.appendChild(line);
-    }
-
-    let trackIndex = 0;
-    for (const t of tracks) {
-      if (t.kind === "parent") {
-        const g = t.group;
-
-        const parentRespPol =
-          g.children.find((c) => c.respPol && String(c.respPol).trim())?.respPol || "";
-        const parentRespOp =
-          g.children.find((c) => c.respOp && String(c.respOp).trim())?.respOp || "";
-        const parentStatus =
-          g.children.find((c) => c.status && String(c.status).trim())?.status || "";
-
-        const parentTask = {
-          parentLabel: g.parentLabel,
-          childLabel: g.parentLabel,
-          startDate: g.aggStart,
-          endDate: g.aggEnd,
-          isMilestone: g.onlySingleMilestone,
-          milestoneDate: g.onlySingleMilestone ? g.aggEnd : null,
-          priority: null,
-          status: parentStatus,
-          respPol: parentRespPol,
-          respOp: parentRespOp,
-          respChild: "",
-          selector: "",
-          order: g.order
-        };
-
-        addBar(trackIndex, parentTask, { isParent: true, parentKey: g.parentKey });
-      } else if (t.kind === "child") {
-        addBar(trackIndex, t.task, { isParent: false });
-      } else if (t.kind === "groupChildren") {
-        t.group.children.forEach((c) => {
-          addBar(trackIndex, c, { isParent: false, hideLabel: true });
-        });
-        addGroupLabelAtRightmostVisibleItem(trackIndex, t.group);
-      } else if (t.kind === "leaf") {
-        addBar(trackIndex, t.task, { isParent: false });
-      }
-      trackIndex++;
-    }
-  }
-
-  function setBarCursor(bar, e) {
-    const role = bar.dataset.role;
-    if (role === "parent") {
-      bar.style.cursor = "grab";
-      return;
-    }
-    const rect = bar.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left;
-    if (offsetX < 8 || rect.right - e.clientX < 8) {
-      bar.style.cursor = "ew-resize";
-    } else {
-      bar.style.cursor = "grab";
-    }
-  }
-
-  function attachBarDrag(bar) {
-    bar.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return;
-      if (!allowTimelineDateEdit) return;
-      e.preventDefault();
-      hideTooltip();
-
-      const role = bar.dataset.role;
-      const rect = bar.getBoundingClientRect();
-
-      const totalDays = diffInDays(visibleStart, visibleEnd) + 1;
-      const containerWidth =
-        timelineBodyEl.clientWidth ||
-        timelineHeaderEl.clientWidth ||
-        rect.width;
-
-      dragState.pxPerDay = containerWidth / Math.max(1, totalDays);
-      dragState.active = true;
-      dragState.bar = bar;
-      dragState.milestone = null;
-      dragState.startX = e.clientX;
-      dragState.originalStart = normalizeDate(bar.dataset.start);
-      dragState.originalEnd = normalizeDate(bar.dataset.end);
-
-      if (role === "child") {
-        dragState.taskId = parseInt(bar.dataset.rowId, 10);
-        const offsetX = e.clientX - rect.left;
-        if (offsetX < 8) dragState.type = "resize-left-child";
-        else if (rect.right - e.clientX < 8) dragState.type = "resize-right-child";
-        else dragState.type = "move-child";
-      } else {
-        dragState.type = "move-parent";
-        dragState.parentKey = bar.dataset.parentKey;
-        const grp = parentGroups.find((g) => g.parentKey === dragState.parentKey);
-        dragState.originalChildren = grp
-          ? grp.children.map((c) => ({
-              rowId: c.rowId,
-              startDate: c.startDate ? new Date(c.startDate.getTime()) : null,
-              endDate: c.endDate ? new Date(c.endDate.getTime()) : null
-            }))
-          : [];
-      }
-
-      const midY = rect.top + rect.height / 2;
-      const txtStart = formatDate(dragState.originalStart);
-      const txtEnd = formatDate(dragState.originalEnd);
-      const typeLabel =
-        dragState.type === "move-child" || dragState.type === "move-parent"
-          ? "déplacement"
-          : dragState.type === "resize-left-child"
-          ? "début"
-          : "fin";
-
-      showDragBubble(
-        `${txtStart} → ${txtEnd}<span class="muted">${typeLabel}</span>`,
-        e.clientX,
-        midY
-      );
-
-      document.addEventListener("mousemove", onDragMove);
-      document.addEventListener("mouseup", onDragEnd);
-    });
-  }
-
-  function attachMilestoneDrag(m, task, isParent) {
-    if (isParent) return;
-
-    m.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return;
-      if (!allowTimelineDateEdit) return;
-      e.preventDefault();
-      hideTooltip();
-
-      const rect = m.getBoundingClientRect();
-      const totalDays = diffInDays(visibleStart, visibleEnd) + 1;
-      const containerWidth =
-        timelineBodyEl.clientWidth ||
-        timelineHeaderEl.clientWidth ||
-        rect.width;
-
-      dragState.pxPerDay = containerWidth / Math.max(1, totalDays);
-      dragState.active = true;
-      dragState.bar = null;
-      dragState.milestone = m;
-      dragState.type = "move-milestone";
-      dragState.taskId = task.rowId;
-      dragState.originalMilestoneDate = new Date(task.milestoneDate.getTime());
-      dragState.startX = e.clientX;
-
-      const midY = rect.top + rect.height / 2;
-      showDragBubble(
-        `${formatDate(task.milestoneDate)}<span class="muted">jalon</span>`,
-        e.clientX,
-        midY
-      );
-
-      document.addEventListener("mousemove", onDragMove);
-      document.addEventListener("mouseup", onDragEnd);
-    });
-  }
-
-  function onDragMove(e) {
-    if (!dragState.active) return;
-    e.preventDefault();
-
-    const deltaX = e.clientX - dragState.startX;
-    const deltaDays = Math.round(deltaX / dragState.pxPerDay);
-
-    const totalDays = diffInDays(visibleStart, visibleEnd) + 1;
-    const containerWidth = timelineBodyEl.clientWidth || timelineHeaderEl.clientWidth;
-    if (!containerWidth || !totalDays) return;
-
-    if (
-      dragState.type === "move-child" ||
-      dragState.type === "resize-left-child" ||
-      dragState.type === "resize-right-child"
-    ) {
-      const origStart = dragState.originalStart;
-      const origEnd = dragState.originalEnd;
-      let newStart = new Date(origStart.getTime());
-      let newEnd = new Date(origEnd.getTime());
-
-      if (dragState.type === "move-child") {
-        newStart = addDays(newStart, deltaDays);
-        newEnd = addDays(newEnd, deltaDays);
-      } else if (dragState.type === "resize-left-child") {
-        newStart = addDays(newStart, deltaDays);
-        if (newStart > newEnd) newStart = new Date(newEnd.getTime());
-      } else if (dragState.type === "resize-right-child") {
-        newEnd = addDays(newEnd, deltaDays);
-        if (newEnd < newStart) newEnd = new Date(newStart.getTime());
-      }
-
-      const leftFrac = diffInDays(visibleStart, newStart) / totalDays;
-      const rightFrac = diffInDays(visibleStart, newEnd) / totalDays;
-      const widthFrac = Math.max(0.01, (rightFrac - leftFrac) + (1 / totalDays));
-
-      dragState.bar.style.left = (leftFrac * containerWidth).toFixed(1) + "px";
-      dragState.bar.style.width = (widthFrac * containerWidth).toFixed(1) + "px";
-      dragState.bar.dataset.start = newStart.toISOString();
-      dragState.bar.dataset.end = newEnd.toISOString();
-
-      const rect = dragState.bar.getBoundingClientRect();
-      const midY = rect.top + rect.height / 2;
-      const label =
-        dragState.type === "move-child"
-          ? "déplacement"
-          : dragState.type === "resize-left-child"
-          ? "début"
-          : "fin";
-
-      showDragBubble(
-        `${formatDate(newStart)} → ${formatDate(newEnd)}<span class="muted">${label}</span>`,
-        e.clientX,
-        midY
-      );
-    }
-
-    if (dragState.type === "move-parent") {
-      const grp = parentGroups.find((g) => g.parentKey === dragState.parentKey);
-      if (!grp || !grp.aggStart || !grp.aggEnd) return;
-
-      const newStart = addDays(grp.aggStart, deltaDays);
-      const newEnd = addDays(grp.aggEnd, deltaDays);
-
-      const leftFrac = diffInDays(visibleStart, newStart) / totalDays;
-      const rightFrac = diffInDays(visibleStart, newEnd) / totalDays;
-      const widthFrac = Math.max(0.01, (rightFrac - leftFrac) + (1 / totalDays));
-
-      dragState.bar.style.left = (leftFrac * containerWidth).toFixed(1) + "px";
-      dragState.bar.style.width = (widthFrac * containerWidth).toFixed(1) + "px";
-
-      const rect = dragState.bar.getBoundingClientRect();
-      const midY = rect.top + rect.height / 2;
-      showDragBubble(
-        `${formatDate(newStart)} → ${formatDate(newEnd)}<span class="muted">groupe</span>`,
-        e.clientX,
-        midY
-      );
-    }
-
-    if (dragState.type === "move-milestone") {
-      const orig = dragState.originalMilestoneDate;
-      const newDate = addDays(orig, deltaDays);
-      const frac = diffInDays(visibleStart, newDate) / totalDays;
-      const x = frac * containerWidth;
-      dragState.milestone.style.left = x.toFixed(1) + "px";
-
-      const rect = dragState.milestone.getBoundingClientRect();
-      const midY = rect.top + rect.height / 2;
-      showDragBubble(
-        `${formatDate(newDate)}<span class="muted">jalon</span>`,
-        e.clientX,
-        midY
-      );
-    }
-  }
-
-  async function onDragEnd(e) {
-    if (!dragState.active) return;
-    e.preventDefault();
-
-    document.removeEventListener("mousemove", onDragMove);
-    document.removeEventListener("mouseup", onDragEnd);
-    hideDragBubble();
-
-    const deltaX = e.clientX - dragState.startX;
-    const deltaDays = Math.round(deltaX / dragState.pxPerDay);
-
-    try {
-      if (
-        dragState.type === "move-child" ||
-        dragState.type === "resize-left-child" ||
-        dragState.type === "resize-right-child"
-      ) {
-        const newStart = normalizeDate(dragState.bar.dataset.start);
-        const newEnd = normalizeDate(dragState.bar.dataset.end);
-        await updateChildDates(dragState.taskId, newStart, newEnd);
-        showToast("Dates mises à jour", "success");
-      } else if (dragState.type === "move-parent" && dragState.originalChildren) {
-        await moveParentGroup(dragState.parentKey, dragState.originalChildren, deltaDays);
-        showToast("Groupe déplacé", "success");
-      } else if (dragState.type === "move-milestone") {
-        const newDate = addDays(dragState.originalMilestoneDate, deltaDays);
-        await updateMilestoneDate(dragState.taskId, newDate);
-        showToast("Jalon déplacé", "success");
-      }
-    } catch (err) {
-      console.error(err);
-      showToast("Erreur lors de la mise à jour", "error");
-    } finally {
-      dragState.active = false;
-      dragState.bar = null;
-      dragState.milestone = null;
-      dragState.type = null;
-      dragState.taskId = null;
-      dragState.parentKey = null;
-      dragState.originalChildren = null;
-    }
-  }
-
-  function render() {
-    if (!allRecords.length) {
-      taskListEl.innerHTML = '<div class="empty">En attente de données…</div>';
-      timelineGridEl.innerHTML = "";
-      yearsRowEl.innerHTML = "";
-      monthsRowEl.innerHTML = "";
-      weeksRowEl.innerHTML = "";
-      daysRowEl.innerHTML = "";
-      currentPeriodEl.textContent = "–";
-      taskCountEl.textContent = "";
-      return;
-    }
-
-    initColorFieldSelect();
-    buildHeaders();
-    renderTaskList();
-    renderTimeline();
-  }
-
-  window.addEventListener("resize", () => {
-    if (!visibleStart || !visibleEnd || !allRecords.length) return;
-    render();
-  });
-
-
-  async function initManualMappingUi() {
-    toggleMappingPanelBtn?.addEventListener("click", async () => {
-      const hidden = mappingPanelEl.hasAttribute("hidden");
-      if (hidden) {
-        mappingPanelEl.removeAttribute("hidden");
-        await loadMappingOptions();
-        parentRefColSelect.value = manualParentMapping.childParentColId || "";
-        parentTableSelect.value = manualParentMapping.parentTableId || "";
-        await refreshParentColumnOptions(parentTableSelect.value || null);
-        parentStartColSelect.value = manualParentMapping.parentStartColId || "";
-        parentEndColSelect.value = manualParentMapping.parentEndColId || "";
-      } else {
-        mappingPanelEl.setAttribute("hidden", "hidden");
-      }
-    });
-
-    parentTableSelect?.addEventListener("change", async (e) => {
-      manualParentMapping.enabled = true;
-      manualParentMapping.parentTableId = e.target.value || null;
-      await refreshParentColumnOptions(manualParentMapping.parentTableId);
-      saveState();
-    });
-
-    parentRefColSelect?.addEventListener("change", (e) => {
-      manualParentMapping.enabled = true;
-      manualParentMapping.childParentColId = e.target.value || null;
-      if (manualParentMapping.childParentColId) currentParentMappedColId = manualParentMapping.childParentColId;
-      saveState();
-    });
-
-    parentStartColSelect?.addEventListener("change", (e) => {
-      manualParentMapping.enabled = true;
-      manualParentMapping.parentStartColId = e.target.value || null;
-      saveState();
-    });
-
-    parentEndColSelect?.addEventListener("change", (e) => {
-      manualParentMapping.enabled = true;
-      manualParentMapping.parentEndColId = e.target.value || null;
-      saveState();
-    });
-
-    resetManualMappingBtn?.addEventListener("click", () => {
-      manualParentMapping = { enabled: false, childParentColId: null, parentTableId: null, parentStartColId: null, parentEndColId: null };
-      parentRefColSelect.value = ""; parentTableSelect.value = ""; parentStartColSelect.value = ""; parentEndColSelect.value = "";
-      saveState();
-      showToast("Mapping manuel réinitialisé", "success");
-    });
-  }
-
-  initManualMappingUi();
-  refreshDateEditButton();
+  toggleDateEditBtn.textContent = allowTimelineDateEdit ? "Dates: édition autorisée" : "Dates: édition bloquée";
+  toggleDateEditBtn.classList.toggle("active", allowTimelineDateEdit);
+  toggleLabelsBtn.textContent = labelsVisible ? "Masquer labels" : "Afficher labels";
+  groupChildrenBtn.textContent = compactChildren ? "Niveaux bas : 1 ligne" : "Niveaux bas : multi-lignes";
+  updateZoomButtons();
 
   grist.ready({
     requiredAccess: "full",
     columns: [
-      { name: "parent", title: "Nom parent", optional: true },
-      { name: "child", title: "Nom enfant", optional: true },
-      { name: "start", title: "Date début enfant", optional: true, type: "Date,DateTime" },
-      { name: "end", title: "Date fin enfant", optional: true, type: "Date,DateTime" },
-      { name: "parentStart", title: "Date début parent", optional: true, type: "Date,DateTime" },
-      { name: "parentEnd", title: "Date fin parent", optional: true, type: "Date,DateTime" },
-      { name: "priority", title: "Priorité enfant", optional: true },
-      { name: "status", title: "Statut", optional: true },
-      { name: "respPol", title: "Référent politique", optional: true },
-      { name: "respOp", title: "Référent opérationnel", optional: true },
-      { name: "respChild", title: "Responsable enfant", optional: true },
+      { name: "level1Name", title: "Niveau 1 — nom", optional: false },
+      { name: "level1Start", title: "Niveau 1 — date début", optional: true, type: "Date,DateTime" },
+      { name: "level1End", title: "Niveau 1 — date fin", optional: true, type: "Date,DateTime" },
+      { name: "level1Status", title: "Niveau 1 — statut", optional: true },
+      { name: "level1Responsible", title: "Niveau 1 — responsable", optional: true },
+      { name: "level1Progress", title: "Niveau 1 — avancement", optional: true },
+      { name: "level1SourceTableId", title: "Niveau 1 — table source", optional: true },
+      { name: "level1SourceRowId", title: "Niveau 1 — id source", optional: true },
+      { name: "level1StartColId", title: "Niveau 1 — colonne début source", optional: true },
+      { name: "level1EndColId", title: "Niveau 1 — colonne fin source", optional: true },
+      { name: "level1ProgressColId", title: "Niveau 1 — colonne avancement source", optional: true },
+
+      { name: "level2Name", title: "Niveau 2 — nom", optional: true },
+      { name: "level2Start", title: "Niveau 2 — date début", optional: true, type: "Date,DateTime" },
+      { name: "level2End", title: "Niveau 2 — date fin", optional: true, type: "Date,DateTime" },
+      { name: "level2Status", title: "Niveau 2 — statut", optional: true },
+      { name: "level2Responsible", title: "Niveau 2 — responsable", optional: true },
+      { name: "level2Progress", title: "Niveau 2 — avancement", optional: true },
+      { name: "level2SourceTableId", title: "Niveau 2 — table source", optional: true },
+      { name: "level2SourceRowId", title: "Niveau 2 — id source", optional: true },
+      { name: "level2StartColId", title: "Niveau 2 — colonne début source", optional: true },
+      { name: "level2EndColId", title: "Niveau 2 — colonne fin source", optional: true },
+      { name: "level2ProgressColId", title: "Niveau 2 — colonne avancement source", optional: true },
+
+      { name: "level3Name", title: "Niveau 3 — nom", optional: true },
+      { name: "level3Start", title: "Niveau 3 — date début", optional: true, type: "Date,DateTime" },
+      { name: "level3End", title: "Niveau 3 — date fin", optional: true, type: "Date,DateTime" },
+      { name: "level3Status", title: "Niveau 3 — statut", optional: true },
+      { name: "level3Responsible", title: "Niveau 3 — responsable", optional: true },
+      { name: "level3Progress", title: "Niveau 3 — avancement", optional: true },
+      { name: "level3SourceTableId", title: "Niveau 3 — table source", optional: true },
+      { name: "level3SourceRowId", title: "Niveau 3 — id source", optional: true },
+      { name: "level3StartColId", title: "Niveau 3 — colonne début source", optional: true },
+      { name: "level3EndColId", title: "Niveau 3 — colonne fin source", optional: true },
+      { name: "level3ProgressColId", title: "Niveau 3 — colonne avancement source", optional: true },
+
       { name: "selector", title: "Sélecteur O/N", optional: true },
       { name: "order", title: "Ordre d’affichage", optional: true },
-      { name: "sourceRowId", title: "ID ligne source", optional: true },
-      { name: "sourceTableId", title: "Table source", optional: true }
+
+      { name: "parent", title: "Compatibilité — parent / niveau 1", optional: true },
+      { name: "child", title: "Compatibilité — enfant / niveau 2", optional: true },
+      { name: "start", title: "Compatibilité — début", optional: true, type: "Date,DateTime" },
+      { name: "end", title: "Compatibilité — fin", optional: true, type: "Date,DateTime" },
+      { name: "status", title: "Compatibilité — statut", optional: true },
+      { name: "respChild", title: "Compatibilité — responsable", optional: true },
+      { name: "progress", title: "Compatibilité — avancement", optional: true },
+      { name: "sourceTableId", title: "Compatibilité — table source", optional: true },
+      { name: "sourceRowId", title: "Compatibilité — id source", optional: true },
+      { name: "sourceStartColId", title: "Compatibilité — colonne début source", optional: true },
+      { name: "sourceEndColId", title: "Compatibilité — colonne fin source", optional: true },
+      { name: "sourceProgressColId", title: "Compatibilité — colonne avancement source", optional: true },
+      { name: "Source_Table", title: "Compatibilité exemple — table source", optional: true },
+      { name: "Source_Record_ID", title: "Compatibilité exemple — id source", optional: true },
+      { name: "Source_Start_Col", title: "Compatibilité exemple — colonne début", optional: true },
+      { name: "Source_End_Col", title: "Compatibilité exemple — colonne fin", optional: true },
+      { name: "Source_Progress_Col", title: "Compatibilité exemple — colonne avancement", optional: true }
     ]
   });
 
   grist.onRecords(async function (records, mappings) {
     setDebugStatus(`onRecords reçu: ${records ? records.length : 0} ligne(s)`);
     latestMappings = mappings || null;
+    try {
+      currentTableId = await grist.selectedTable.getTableId();
+    } catch (e) {
+      currentTableId = null;
+    }
 
     if (!records || !records.length) {
       allRecords = [];
-      parentGroups = [];
-      leafTasks = [];
+      treeRoots = [];
+      flatTracks = [];
+      nodeById = new Map();
       globalMinDate = null;
       globalMaxDate = null;
-      visibleStart = null;
-      visibleEnd = null;
       currentMappingsOk = false;
-      await refreshTableInfo();
       render();
+      refreshTableInfo();
       return;
     }
 
     try {
-      const probe = grist.mapColumnNames(records[0], { mappings: latestMappings });
-      currentMappingsOk = !!probe;
-      setDebugStatus("Mapping OK");
+      currentMappingsOk = !!grist.mapColumnNames(records[0], { mappings: latestMappings });
+      setDebugStatus(currentMappingsOk ? "Mapping OK" : "Mapping KO");
     } catch (e) {
       currentMappingsOk = false;
       setDebugStatus("Mapping KO");
     }
 
-    await refreshTableInfo();
-
-    allRecords = buildLogicalRecords(records);
-    allRecords = await enrichRecordsWithParentDates(allRecords);
-    groupData(allRecords);
-
+    buildLogicalRecords(records);
     const range = computeGlobalRange(allRecords);
     globalMinDate = range.min;
     globalMaxDate = range.max;
     keepOrRecomputeVisibleRange();
     saveState();
-
-    updateZoomButtons();
-    toggleLabelsBtn.textContent = labelsVisible ? "Masquer labels" : "Afficher labels";
-    groupChildrenBtn.textContent = childrenOnOneRow
-      ? "Enfants : 1 ligne"
-      : "Enfants : multi-lignes";
-
     render();
   });
 })();
