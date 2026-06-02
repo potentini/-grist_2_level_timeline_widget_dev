@@ -72,8 +72,8 @@
     sourceTable: "Table source"
   };
 
-  const TODAY_POSITION_RATIO = 1 / 3;
-  const NAVIGATION_STEP_RATIO = 1 / 6;
+  const TODAY_POSITION_RATIO = 1 / 2;
+  const NAVIGATION_STEP_RATIO = 1 / 12;
 
   let zoomMode = "day";
   let allRecords = [];
