@@ -1,6 +1,6 @@
 (function () {
   const ZOOMS = {
-    day: { key: "day", spanDays: 14 },
+    day: { key: "day", spanDays: 21 },
     week: { key: "week", spanDays: 56 },
     month: { key: "month", spanDays: 365 },
     year: { key: "year", spanDays: 365 * 3 },
@@ -72,8 +72,8 @@
     sourceTable: "Table source"
   };
 
-  const TODAY_POSITION_RATIO = 1 / 2;
-  const NAVIGATION_STEP_RATIO = 1 / 12;
+  const TODAY_POSITION_RATIO = 1 / 10;
+  const NAVIGATION_STEP_RATIO = 1 / 24;
 
   let zoomMode = "day";
   let allRecords = [];
