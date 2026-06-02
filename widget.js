@@ -27,9 +27,6 @@
       status: ["level1Status", "status"],
       responsible: ["level1Responsible", "respPol", "respOp", "responsible"],
       progress: ["level1Progress", "progress", "avance", "avancement"],
-      sourceNameCol: ["level1NameColId", "level1SourceNameCol", "sourceNameColId", "sourceNameCol", "Source_Name_Col"],
-      sourceStatusCol: ["level1StatusColId", "level1SourceStatusCol", "sourceStatusColId", "sourceStatusCol", "Source_Status_Col"],
-      sourceResponsibleCol: ["level1ResponsibleColId", "level1SourceResponsibleCol", "sourceResponsibleColId", "sourceResponsibleCol", "Source_Responsible_Col"],
       sourceTable: ["level1SourceTableId", "level1SourceTable", "sourceTableId", "sourceTable", "Source_Table"],
       sourceRow: ["level1SourceRowId", "level1SourceId", "sourceRowId", "sourceId", "masterRowId", "Source_Record_ID"],
       sourceStartCol: ["level1StartColId", "level1SourceStartCol", "sourceStartColId", "sourceStartCol", "Source_Start_Col"],
@@ -43,9 +40,6 @@
       status: ["level2Status", "status"],
       responsible: ["level2Responsible", "respChild", "responsible"],
       progress: ["level2Progress", "progress", "avance", "avancement"],
-      sourceNameCol: ["level2NameColId", "level2SourceNameCol", "sourceNameColId", "sourceNameCol", "Source_Name_Col"],
-      sourceStatusCol: ["level2StatusColId", "level2SourceStatusCol", "sourceStatusColId", "sourceStatusCol", "Source_Status_Col"],
-      sourceResponsibleCol: ["level2ResponsibleColId", "level2SourceResponsibleCol", "sourceResponsibleColId", "sourceResponsibleCol", "Source_Responsible_Col"],
       sourceTable: ["level2SourceTableId", "level2SourceTable", "sourceTableId", "sourceTable", "Source_Table"],
       sourceRow: ["level2SourceRowId", "level2SourceId", "sourceRowId", "sourceId", "masterRowId", "Source_Record_ID"],
       sourceStartCol: ["level2StartColId", "level2SourceStartCol", "sourceStartColId", "sourceStartCol", "Source_Start_Col"],
@@ -59,9 +53,6 @@
       status: ["level3Status", "status"],
       responsible: ["level3Responsible", "respChild", "responsible"],
       progress: ["level3Progress", "progress", "avance", "avancement"],
-      sourceNameCol: ["level3NameColId", "level3SourceNameCol", "sourceNameColId", "sourceNameCol", "Source_Name_Col"],
-      sourceStatusCol: ["level3StatusColId", "level3SourceStatusCol", "sourceStatusColId", "sourceStatusCol", "Source_Status_Col"],
-      sourceResponsibleCol: ["level3ResponsibleColId", "level3SourceResponsibleCol", "sourceResponsibleColId", "sourceResponsibleCol", "Source_Responsible_Col"],
       sourceTable: ["level3SourceTableId", "level3SourceTable", "sourceTableId", "sourceTable", "Source_Table"],
       sourceRow: ["level3SourceRowId", "level3SourceId", "sourceRowId", "sourceId", "masterRowId", "Source_Record_ID"],
       sourceStartCol: ["level3StartColId", "level3SourceStartCol", "sourceStartColId", "sourceStartCol", "Source_Start_Col"],
@@ -79,25 +70,6 @@
     responsible: "Responsable",
     progress: "Avancement",
     sourceTable: "Table source"
-  };
-
-  const FIELD_INPUT_ALIASES = {
-    nom: "name",
-    name: "name",
-    statut: "status",
-    status: "status",
-    responsable: "responsible",
-    responsible: "responsible",
-    avancement: "progress",
-    progression: "progress",
-    progress: "progress"
-  };
-
-  const EDITABLE_FIELDS = {
-    name: { label: "Nom", sourceColKey: "nameCol", fallbackAliasKey: "name", normalize: (value) => String(value || "").trim() },
-    status: { label: "Statut", sourceColKey: "statusCol", fallbackAliasKey: "status", normalize: (value) => String(value || "").trim() },
-    responsible: { label: "Responsable", sourceColKey: "responsibleCol", fallbackAliasKey: "responsible", normalize: (value) => String(value || "").trim() },
-    progress: { label: "Avancement", sourceColKey: "progressCol", fallbackAliasKey: "progress", normalize: normalizeProgressForWrite }
   };
 
   let zoomMode = "day";
@@ -367,12 +339,6 @@
     return Math.max(0, Math.min(100, n <= 1 ? n * 100 : n));
   }
 
-  function normalizeProgressForWrite(value) {
-    const progress = parseProgress(value);
-    if (progress == null) throw new Error("Avancement invalide. Utilisez un nombre entre 0 et 100, par exemple 35 ou 35%.");
-    return Math.round(progress * 100) / 100;
-  }
-
   function makeNodeId(level, parts, refInfo, source, sourceEntries) {
     const pathId = `L${level}:path:${parts.map((p) => String(p || "").trim()).join("›")}`;
     const hasStableLevelSource = hasLevelSpecificSource(sourceEntries, level);
@@ -504,9 +470,6 @@
       rowId: node.source.rowId != null ? node.source.rowId : data.source.rowId,
       startCol: node.source.startCol || data.source.startCol || null,
       endCol: node.source.endCol || data.source.endCol || null,
-      nameCol: node.source.nameCol || data.source.nameCol || null,
-      statusCol: node.source.statusCol || data.source.statusCol || null,
-      responsibleCol: node.source.responsibleCol || data.source.responsibleCol || null,
       progressCol: node.source.progressCol || data.source.progressCol || null
     };
     node.fallbackAliases = data.fallbackAliases || node.fallbackAliases;
@@ -547,9 +510,6 @@
           rowId: mappedEntry(mapped, cfg.sourceRow),
           startCol: mappedEntry(mapped, cfg.sourceStartCol),
           endCol: mappedEntry(mapped, cfg.sourceEndCol),
-          nameCol: mappedEntry(mapped, cfg.sourceNameCol),
-          statusCol: mappedEntry(mapped, cfg.sourceStatusCol),
-          responsibleCol: mappedEntry(mapped, cfg.sourceResponsibleCol),
           progressCol: mappedEntry(mapped, cfg.sourceProgressCol)
         };
         const source = {
@@ -557,9 +517,6 @@
           rowId: Number(coalesce(sourceEntries.rowId.value, ref.rowId)) || null,
           startCol: sourceEntries.startCol.value,
           endCol: sourceEntries.endCol.value,
-          nameCol: sourceEntries.nameCol.value,
-          statusCol: sourceEntries.statusCol.value,
-          responsibleCol: sourceEntries.responsibleCol.value,
           progressCol: sourceEntries.progressCol.value
         };
         const nodeId = makeNodeId(level, pathLabels, ref, source, sourceEntries);
@@ -591,7 +548,7 @@
           progress: parseProgress(mappedValue(mapped, cfg.progress)),
           order: Number(mappedValue(mapped, orderAliases)) || null,
           source,
-          fallbackAliases: { name: cfg.name[0], start: cfg.start[0], end: cfg.end[0], status: cfg.status[0], responsible: cfg.responsible[0], progress: cfg.progress[0] }
+          fallbackAliases: { start: cfg.start[0], end: cfg.end[0], progress: cfg.progress[0] }
         });
 
         parentId = nodeId;
@@ -920,11 +877,6 @@
       meta.textContent = buildSidebarMeta(node);
       info.appendChild(main);
       info.appendChild(meta);
-      info.title = "Double-cliquez pour modifier nom, statut, responsable ou avancement";
-      info.addEventListener("dblclick", (e) => {
-        e.stopPropagation();
-        openFieldEditor(node);
-      });
       row.appendChild(toggle);
       row.appendChild(info);
       taskListEl.appendChild(row);
@@ -1020,8 +972,6 @@
         m.style.top = centerY.toFixed(1) + "px";
         m.style.background = getColorForNode(node);
         m.dataset.nodeId = node.id;
-        m.title = "Double-cliquez pour modifier nom, statut, responsable ou avancement";
-        m.addEventListener("dblclick", (ev) => { ev.preventDefault(); hideTooltip(); openFieldEditor(node); });
         m.addEventListener("mousemove", (ev) => showTooltip(ev.clientX, ev.clientY, node, node.milestoneDate, node.milestoneDate));
         m.addEventListener("mouseenter", (ev) => showTooltip(ev.clientX, ev.clientY, node, node.milestoneDate, node.milestoneDate));
         m.addEventListener("mouseleave", hideTooltip);
@@ -1068,8 +1018,6 @@
         label.textContent = node.label;
         bar.appendChild(label);
       }
-      bar.title = "Double-cliquez pour modifier nom, statut, responsable ou avancement";
-      bar.addEventListener("dblclick", (ev) => { ev.preventDefault(); hideTooltip(); openFieldEditor(node); });
       bar.addEventListener("mousemove", (ev) => {
         setBarCursor(bar, ev);
         showTooltip(ev.clientX, ev.clientY, node, s, e);
@@ -1260,79 +1208,6 @@
     throw new Error("Aucune cible d’écriture. Mappez table source, id source et colonnes début/fin du niveau.");
   }
 
-  function buildFallbackFieldPayload(node, fieldName, value) {
-    if (!latestMappings || !node.firstDisplayRowId) return null;
-    const cfg = EDITABLE_FIELDS[fieldName];
-    const alias = node.fallbackAliases[cfg.fallbackAliasKey];
-    if (!alias) return null;
-    const aliasValues = { id: node.firstDisplayRowId, [alias]: value };
-    const mapped = grist.mapColumnNamesBack(aliasValues, { mappings: latestMappings });
-    if (!mapped || typeof mapped !== "object") return null;
-    const id = mapped.id;
-    const fields = cleanRecordForUpdate(mapped);
-    if (id == null || !Object.keys(fields).length) return null;
-    return { id, fields };
-  }
-
-  async function updateNodeField(node, fieldName, rawValue) {
-    const cfg = EDITABLE_FIELDS[fieldName];
-    if (!cfg) throw new Error("Champ non éditable.");
-    const value = cfg.normalize(rawValue);
-    if (fieldName === "name" && !value) throw new Error("Le nom ne peut pas être vide.");
-    const sourceCol = node.source[cfg.sourceColKey];
-
-    if (node.source.tableId && node.source.rowId != null && sourceCol) {
-      await grist.docApi.applyUserActions([["UpdateRecord", node.source.tableId, node.source.rowId, { [sourceCol]: value }]]);
-      setDebugSyncMode("docApi.applyUserActions (champ source)");
-      setDebugAction(`Update ${node.source.tableId}#${node.source.rowId}: ${sourceCol}`);
-      return;
-    }
-
-    const fallback = buildFallbackFieldPayload(node, fieldName, value);
-    if (fallback) {
-      try {
-        await grist.selectedTable.update([fallback]);
-        setDebugSyncMode("selectedTable.update (fallback champ mappé)");
-        setDebugAction(`Update champ ligne consolidée ${fallback.id}`);
-      } catch (err) {
-        if (!currentTableId) throw err;
-        await grist.docApi.applyUserActions([["UpdateRecord", currentTableId, fallback.id, fallback.fields]]);
-        setDebugSyncMode("docApi.applyUserActions (fallback champ table sélectionnée)");
-        setDebugAction(`Update ${currentTableId}#${fallback.id}`);
-      }
-      return;
-    }
-
-    throw new Error(`Aucune cible d’écriture pour ${cfg.label}. Mappez la colonne source ${cfg.label.toLowerCase()} du niveau ou le champ Grist correspondant.`);
-  }
-
-  function currentFieldValue(node, fieldName) {
-    if (fieldName === "name") return node.label || "";
-    if (fieldName === "progress") return node.progress == null ? "" : String(Math.round(node.progress));
-    return node[fieldName] || "";
-  }
-
-  async function openFieldEditor(node) {
-    const choices = Object.entries(EDITABLE_FIELDS).map(([key, cfg]) => `${key}=${cfg.label}`).join("\n");
-    const selected = window.prompt(`Champ à modifier :\n${choices}`, "status");
-    if (!selected) return;
-    const fieldName = FIELD_INPUT_ALIASES[selected.trim().toLowerCase()] || selected.trim().toLowerCase();
-    if (!EDITABLE_FIELDS[fieldName]) {
-      showToast("Champ inconnu. Utilisez nom/name, statut/status, responsable/responsible ou avancement/progress.", "error");
-      return;
-    }
-    const cfg = EDITABLE_FIELDS[fieldName];
-    const nextValue = window.prompt(`${cfg.label} — nouvelle valeur`, currentFieldValue(node, fieldName));
-    if (nextValue == null) return;
-    try {
-      await updateNodeField(node, fieldName, nextValue);
-      showToast(`${cfg.label} mis à jour`, "success");
-    } catch (err) {
-      console.error(err);
-      showToast(err.message || `Erreur lors de la mise à jour ${cfg.label}`, "error");
-    }
-  }
-
   function refreshTableInfo() {
     const mappedCols = latestMappings && latestMappings.columns ? Object.keys(latestMappings.columns).length : latestMappings ? Object.keys(latestMappings).length : 0;
     const routed = allRecords.filter((n) => n.source.tableId && n.source.rowId != null).length;
@@ -1408,8 +1283,7 @@
     toggleMappingPanelBtn.textContent = "Aide mapping";
     mappingPanelEl.innerHTML = `
       <div><strong>Mapping multi-niveau</strong> : mappez au minimum <code>level1Name</code>. Les niveaux 2 et 3 sont optionnels.</div>
-      <div>Pour écrire dans les vraies tables sources, exposez pour chaque niveau : <code>levelNSourceTableId</code>, <code>levelNSourceRowId</code>, <code>levelNStartColId</code>, <code>levelNEndColId</code>, puis les colonnes des champs éditables : <code>levelNNameColId</code>, <code>levelNStatusColId</code>, <code>levelNResponsibleColId</code>, <code>levelNProgressColId</code>.</div>
-      <div>Double-cliquez une ligne, une barre ou un jalon pour modifier <code>name</code>, <code>status</code>, <code>responsible</code> ou <code>progress</code>.</div>
+      <div>Pour écrire dans les vraies tables sources, exposez pour chaque niveau : <code>levelNSourceTableId</code>, <code>levelNSourceRowId</code>, <code>levelNStartColId</code>, <code>levelNEndColId</code> (et éventuellement <code>levelNProgressColId</code>).</div>
       <div>Exemple : Projets → Tâches → Sous-tâches avec <code>level1SourceTableId=Projets</code>, <code>level2SourceTableId=Taches</code>, <code>level3SourceTableId=Sous_taches</code>.</div>
     `;
     toggleMappingPanelBtn.addEventListener("click", () => {
@@ -1437,9 +1311,6 @@
       { name: "level1SourceRowId", title: "Niveau 1 — id source", optional: true },
       { name: "level1StartColId", title: "Niveau 1 — colonne début source", optional: true },
       { name: "level1EndColId", title: "Niveau 1 — colonne fin source", optional: true },
-      { name: "level1NameColId", title: "Niveau 1 — colonne nom source", optional: true },
-      { name: "level1StatusColId", title: "Niveau 1 — colonne statut source", optional: true },
-      { name: "level1ResponsibleColId", title: "Niveau 1 — colonne responsable source", optional: true },
       { name: "level1ProgressColId", title: "Niveau 1 — colonne avancement source", optional: true },
 
       { name: "level2Name", title: "Niveau 2 — nom", optional: true },
@@ -1452,9 +1323,6 @@
       { name: "level2SourceRowId", title: "Niveau 2 — id source", optional: true },
       { name: "level2StartColId", title: "Niveau 2 — colonne début source", optional: true },
       { name: "level2EndColId", title: "Niveau 2 — colonne fin source", optional: true },
-      { name: "level2NameColId", title: "Niveau 2 — colonne nom source", optional: true },
-      { name: "level2StatusColId", title: "Niveau 2 — colonne statut source", optional: true },
-      { name: "level2ResponsibleColId", title: "Niveau 2 — colonne responsable source", optional: true },
       { name: "level2ProgressColId", title: "Niveau 2 — colonne avancement source", optional: true },
 
       { name: "level3Name", title: "Niveau 3 — nom", optional: true },
@@ -1467,9 +1335,6 @@
       { name: "level3SourceRowId", title: "Niveau 3 — id source", optional: true },
       { name: "level3StartColId", title: "Niveau 3 — colonne début source", optional: true },
       { name: "level3EndColId", title: "Niveau 3 — colonne fin source", optional: true },
-      { name: "level3NameColId", title: "Niveau 3 — colonne nom source", optional: true },
-      { name: "level3StatusColId", title: "Niveau 3 — colonne statut source", optional: true },
-      { name: "level3ResponsibleColId", title: "Niveau 3 — colonne responsable source", optional: true },
       { name: "level3ProgressColId", title: "Niveau 3 — colonne avancement source", optional: true },
 
       { name: "selector", title: "Sélecteur O/N", optional: true },
@@ -1486,17 +1351,11 @@
       { name: "sourceRowId", title: "Compatibilité — id source", optional: true },
       { name: "sourceStartColId", title: "Compatibilité — colonne début source", optional: true },
       { name: "sourceEndColId", title: "Compatibilité — colonne fin source", optional: true },
-      { name: "sourceNameColId", title: "Compatibilité — colonne nom source", optional: true },
-      { name: "sourceStatusColId", title: "Compatibilité — colonne statut source", optional: true },
-      { name: "sourceResponsibleColId", title: "Compatibilité — colonne responsable source", optional: true },
       { name: "sourceProgressColId", title: "Compatibilité — colonne avancement source", optional: true },
       { name: "Source_Table", title: "Compatibilité exemple — table source", optional: true },
       { name: "Source_Record_ID", title: "Compatibilité exemple — id source", optional: true },
       { name: "Source_Start_Col", title: "Compatibilité exemple — colonne début", optional: true },
       { name: "Source_End_Col", title: "Compatibilité exemple — colonne fin", optional: true },
-      { name: "Source_Name_Col", title: "Compatibilité exemple — colonne nom", optional: true },
-      { name: "Source_Status_Col", title: "Compatibilité exemple — colonne statut", optional: true },
-      { name: "Source_Responsible_Col", title: "Compatibilité exemple — colonne responsable", optional: true },
       { name: "Source_Progress_Col", title: "Compatibilité exemple — colonne avancement", optional: true }
     ]
   });
