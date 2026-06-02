@@ -74,6 +74,7 @@
 
   const TODAY_POSITION_RATIO = 1 / 10;
   const NAVIGATION_STEP_RATIO = 1 / 24;
+  const DAY_VIEW_CELL_WIDTH = 32;
 
   let zoomMode = "day";
   let allRecords = [];
@@ -208,6 +209,15 @@
   function addDays(date, n) {
     const d = new Date(date.getTime());
     d.setDate(d.getDate() + n);
+    return d;
+  }
+
+  function addMonths(date, n) {
+    const d = new Date(date.getTime());
+    const day = d.getDate();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + n);
+    d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
     return d;
   }
 
@@ -664,6 +674,19 @@
     visibleEnd = range.end;
   }
 
+  function getTimelineAvailableWidth() {
+    return timelineBodyEl?.clientWidth || timelineHeaderEl?.clientWidth || 800;
+  }
+
+  function getDayZoomSpan() {
+    return Math.max(1, Math.floor(getTimelineAvailableWidth() / DAY_VIEW_CELL_WIDTH));
+  }
+
+  function getZoomSpan() {
+    if (zoomMode === "day") return getDayZoomSpan();
+    return ZOOMS[zoomMode]?.spanDays || 30;
+  }
+
   function setVisibleRangeForZoom() {
     if (!globalMinDate || !globalMaxDate) {
       visibleStart = null;
@@ -674,7 +697,7 @@
       setAllZoomRangeAroundToday();
       return;
     }
-    const span = ZOOMS[zoomMode]?.spanDays || 30;
+    const span = getZoomSpan();
     const range = positionRangeAroundToday(span);
     let start = range.start;
     let end = range.end;
@@ -689,22 +712,34 @@
     if (!visibleStart || !visibleEnd) return setVisibleRangeForZoom();
     const { minAllowed, maxAllowed } = getNavigationBounds();
     if (!minAllowed || !maxAllowed) return setVisibleRangeForZoom();
-    const span = diffInDays(visibleStart, visibleEnd) + 1;
+    const span = zoomMode === "day" ? getDayZoomSpan() : diffInDays(visibleStart, visibleEnd) + 1;
     let start = new Date(visibleStart.getTime());
-    let end = new Date(visibleEnd.getTime());
+    let end = addDays(start, span - 1);
     if (start < minAllowed) { start = new Date(minAllowed.getTime()); end = addDays(start, span - 1); }
     if (end > maxAllowed) { end = new Date(maxAllowed.getTime()); start = addDays(end, -span + 1); }
     visibleStart = start;
     visibleEnd = end;
   }
 
+  function getNavigationStepMonths() {
+    if (zoomMode === "month") return 1;
+    if (zoomMode === "year" || zoomMode === "all") return 3;
+    return 0;
+  }
+
   function shiftVisibleRange(direction) {
     if (!visibleStart || !visibleEnd) return;
     const span = diffInDays(visibleStart, visibleEnd) + 1;
-    const step = Math.max(1, Math.round(span * NAVIGATION_STEP_RATIO));
-    const delta = direction === "left" ? -step : step;
-    visibleStart = addDays(visibleStart, delta);
-    visibleEnd = addDays(visibleEnd, delta);
+    const monthStep = getNavigationStepMonths();
+    if (monthStep) {
+      visibleStart = addMonths(visibleStart, direction === "left" ? -monthStep : monthStep);
+      visibleEnd = addDays(visibleStart, span - 1);
+    } else {
+      const step = Math.max(1, Math.round(span * NAVIGATION_STEP_RATIO));
+      const delta = direction === "left" ? -step : step;
+      visibleStart = addDays(visibleStart, delta);
+      visibleEnd = addDays(visibleEnd, delta);
+    }
     const { minAllowed, maxAllowed } = getNavigationBounds();
     if (visibleStart < minAllowed) { visibleStart = new Date(minAllowed.getTime()); visibleEnd = addDays(visibleStart, span - 1); }
     if (visibleEnd > maxAllowed) { visibleEnd = new Date(maxAllowed.getTime()); visibleStart = addDays(visibleEnd, -span + 1); }
@@ -713,9 +748,10 @@
   }
 
   function recomputeCellWidth(totalDays) {
-    const bodyWidth = timelineBodyEl?.clientWidth || timelineHeaderEl?.clientWidth || 800;
+    const bodyWidth = getTimelineAvailableWidth();
     let cellWidth = 32;
-    if (zoomMode === "all") cellWidth = Math.max(2, Math.min(18, Math.floor(bodyWidth / Math.max(1, totalDays))));
+    if (zoomMode === "day") cellWidth = DAY_VIEW_CELL_WIDTH;
+    else if (zoomMode === "all") cellWidth = Math.max(2, Math.min(18, Math.floor(bodyWidth / Math.max(1, totalDays))));
     else if (zoomMode === "year") cellWidth = Math.max(3, Math.min(10, Math.floor(bodyWidth / Math.max(1, totalDays))));
     else if (zoomMode === "month") cellWidth = Math.max(9, Math.min(24, Math.floor(bodyWidth / Math.max(1, totalDays))));
     else if (zoomMode === "week") cellWidth = Math.max(16, Math.min(32, Math.floor(bodyWidth / Math.max(1, totalDays))));
@@ -957,6 +993,12 @@
       return diffInDays(visibleStart, clamped) / totalDays;
     }
 
+    function dateToCenterFrac(d) {
+      if (!d) return null;
+      const clamped = d < visibleStart ? visibleStart : d > visibleEnd ? visibleEnd : d;
+      return (diffInDays(visibleStart, clamped) + 0.5) / totalDays;
+    }
+
     for (let t = 0; t < tracks.length; t++) {
       const row = document.createElement("div");
       row.className = "grid-row";
@@ -985,7 +1027,7 @@
       if (!start || !end || end < visibleStart || start > visibleEnd) return;
 
       if (node.isMilestone && !node.startDate) {
-        const frac = dateToFrac(node.milestoneDate);
+        const frac = dateToCenterFrac(node.milestoneDate);
         if (frac == null) return;
         const x = frac * containerWidth;
         const centerY = trackIndex * rowHeight + rowHeight / 2;
@@ -1151,7 +1193,7 @@
       showDragBubble(`${formatDate(newStart)} → ${formatDate(newEnd)}<span class="muted">édition</span>`, e.clientX, rect.top + rect.height / 2);
     } else if (dragState.milestone) {
       const newDate = addDays(dragState.originalMilestoneDate, deltaDays);
-      const x = (diffInDays(visibleStart, newDate) / totalDays) * containerWidth;
+      const x = ((diffInDays(visibleStart, newDate) + 0.5) / totalDays) * containerWidth;
       dragState.milestone.style.left = x.toFixed(1) + "px";
       const rect = dragState.milestone.getBoundingClientRect();
       showDragBubble(`${formatDate(newDate)}<span class="muted">jalon</span>`, e.clientX, rect.top + rect.height / 2);
@@ -1300,7 +1342,11 @@
     render();
   });
   colorFieldSelect.addEventListener("change", (e) => { colorField = e.target.value; saveState(); render(); });
-  window.addEventListener("resize", () => { if (allRecords.length) render(); });
+  window.addEventListener("resize", () => {
+    if (!allRecords.length) return;
+    if (zoomMode === "day") keepOrRecomputeVisibleRange();
+    render();
+  });
 
   if (toggleMappingPanelBtn && mappingPanelEl) {
     toggleMappingPanelBtn.textContent = "Aide mapping";
