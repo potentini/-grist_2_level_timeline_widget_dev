@@ -1,37 +1,67 @@
-# Widget Grist — Timeline hiérarchique à 2 niveaux
+# Widget Grist — Timeline Gantt multi-niveau
 
-Ce projet est un **widget pour Grist** qui affiche un planning type **Gantt** avec une hiérarchie **Parent → Enfant**.
+Ce projet est un **widget pour Grist** qui affiche un planning type **Gantt** hiérarchique jusqu’à **trois niveaux** : niveau 1, niveau 2 et niveau 3. Seul le **niveau 1** est requis ; les niveaux 2 et 3 sont optionnels.
 
-L’interface permet de naviguer dans le temps, regrouper/plier les tâches, changer la coloration des barres et modifier les dates directement depuis le widget (drag & drop), avec synchronisation vers Grist.
+Le widget peut lire une table liée/consolidée pour construire le Gantt, puis écrire les changements dans les **vraies tables sources** de chaque niveau. L’idée est de ne pas modifier une colonne calculée visible, mais de router l’écriture vers la table et les colonnes métier légitimes.
 
 ## Fonctionnalités principales
 
-- Affichage Gantt hiérarchique (parents + tâches enfants).
+- Affichage Gantt hiérarchique `Niveau 1 → Niveau 2 → Niveau 3`.
+- Champs essentiels par niveau : nom, date de début, date de fin, statut, responsable, avancement.
+- Niveau 1 obligatoire ; niveaux 2 et 3 facultatifs.
 - Zoom temporel : `jour`, `semaine`, `mois`, `année`, `tout`.
 - Navigation temporelle : précédent / suivant / aujourd’hui.
-- Repli / dépli global et par parent.
-- Coloration configurable selon différents champs (priorité, statut, responsable, etc.).
-- Infobulles riches au survol (dates, statut, priorité, responsables).
-- Édition des dates par glisser-déposer sur les barres.
-- Persistance locale de l’état UI (zoom, champ couleur, affichage labels, etc.) via `localStorage`.
+- Repli / dépli global et par nœud hiérarchique.
+- Coloration configurable par niveau, nom, statut, responsable, avancement, table source ou dates.
+- Infobulles riches au survol : dates, niveau, statut, responsable, avancement, source.
+- Édition des dates par glisser-déposer sur les barres explicitement datées.
+- Routage d’écriture vers les tables sources via `grist.docApi.applyUserActions`.
+- Persistance locale de l’état UI via `localStorage`.
 
 ## Structure du projet
 
 - `index.html` : UI du widget (layout + styles + chargement API Grist).
-- `widget.js` : logique métier (données, rendu timeline, interactions, persistance, sync Grist).
+- `widget.js` : logique métier (mapping multi-niveau, arbre Gantt, rendu timeline, interactions, synchronisation Grist).
 - `README.md` : documentation du projet.
 
-## Prérequis
+## Mapping Grist recommandé
 
-- Un document **Grist**.
-- La possibilité d’ajouter un widget par **URL personnalisée** dans une vue Grist.
-- Une table contenant au minimum des colonnes compatibles avec :
-  - niveau parent,
-  - niveau enfant,
-  - date de début,
-  - date de fin.
+Mappez au minimum :
 
-> Le code prévoit aussi des champs optionnels (ex: priorité, statut, responsables) utilisés pour l’affichage, les tooltips et la coloration.
+- `level1Name` : nom du niveau 1.
+
+Puis, selon vos besoins :
+
+- `levelNName` : nom du niveau N (`N = 1, 2, 3`).
+- `levelNStart` : date de début affichée.
+- `levelNEnd` : date de fin affichée.
+- `levelNStatus` : statut.
+- `levelNResponsible` : responsable.
+- `levelNProgress` : avancement (`0..1`, `0..100` ou `%`).
+
+## Écriture vers les vraies tables sources
+
+Pour qu’un déplacement/redimensionnement depuis le widget écrive dans la vraie table métier, exposez pour chaque niveau éditable :
+
+- `levelNSourceTableId` : identifiant de la table source réelle.
+- `levelNSourceRowId` : id de la ligne source réelle.
+- `levelNStartColId` : id de la colonne date de début source.
+- `levelNEndColId` : id de la colonne date de fin source.
+- `levelNProgressColId` : id de la colonne avancement source (prévu pour extension d’écriture de l’avancement).
+
+Exemple généralisé :
+
+```js
+const tableHandlers = {
+  Projets: { tableId: "Projets", startCol: "DateDebut", endCol: "DateFin", titleCol: "Nom" },
+  Taches: { tableId: "Taches", startCol: "DateDebut", endCol: "DateFin", titleCol: "Titre" },
+  Sous_taches: { tableId: "Sous_taches", startCol: "DateDebut", endCol: "DateFin", titleCol: "Titre" }
+};
+```
+
+Dans le widget, cette logique devient déclarative dans les colonnes mappées : une barre sait de quelle table source elle vient, quelle ligne source modifier, et quelles colonnes source mettre à jour.
+
+Si ces colonnes source ne sont pas fournies, le widget conserve un fallback et tente d’écrire dans la table sélectionnée via le mapping Grist.
 
 ## Installation / utilisation dans Grist
 
@@ -39,40 +69,22 @@ L’interface permet de naviguer dans le temps, regrouper/plier les tâches, cha
 2. Dans Grist, ajouter un widget via une **URL personnalisée**.
 3. Renseigner l’URL de `index.html`.
 4. Mapper les colonnes Grist attendues par le widget.
-5. Interagir avec le Gantt (zoom, navigation, drag & drop, filtres visuels).
-
-
-## Écriture vers une table source (recommandé avec colonnes calculées)
-
-Si votre vue Gantt est une table consolidée avec des `lookup` / formules (donc non éditables), configurez deux colonnes supplémentaires dans le mapping du widget :
-
-- `sourceRowId` : ID de la ligne métier réelle (ex: `$Sous_Projet.id`)
-- `sourceTableId` : identifiant de la table métier (ex: `Sous_Projets`)
-
-Dans ce mode, le widget continue à lire la vue consolidée mais envoie les modifications de dates directement vers la table source via `docApi.applyUserActions`.
-
-Sans ces colonnes, le widget conserve le comportement standard et tente d’écrire dans la table sélectionnée.
+5. Activer l’édition des dates avec le bouton `Dates: édition bloquée/autorisée`.
+6. Déplacer ou redimensionner une barre explicitement datée.
 
 ## Détails techniques
 
 - API Grist chargée depuis : `https://docs.getgrist.com/grist-plugin-api.js`.
 - Le widget utilise un modèle de dates normalisées au jour.
 - Les modes de zoom sont définis dans `ZOOMS`.
-- Une palette de couleurs par défaut est définie dans `PALETTE`.
-- L’état utilisateur est stocké sous la clé `grist_gantt_state_v11`.
-
-## Personnalisation
-
-Vous pouvez adapter rapidement :
-
-- la palette (`PALETTE`),
-- les niveaux de zoom (`ZOOMS`),
-- les champs proposés pour la coloration (`availableColorFields`),
-- les textes FR/UX et les styles CSS.
+- Les niveaux sont définis dans `LEVELS`.
+- Les alias de mapping par niveau sont centralisés dans `LEVEL_ALIASES`.
+- L’état utilisateur est stocké sous la clé `grist_gantt_multilevel_state_v1`.
 
 ## Limites connues
 
-- Le widget dépend de la qualité du mapping colonnes dans Grist.
+- Une barre agrégée à partir de ses enfants sans dates propres n’est pas éditable directement : mappez les dates/source du niveau concerné pour la rendre modifiable.
+- Le widget dépend de la qualité des colonnes source exposées par la table consolidée.
 - Les performances peuvent baisser sur de très gros volumes de lignes.
 - La persistance d’état étant locale au navigateur, elle n’est pas partagée entre utilisateurs.
 
