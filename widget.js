@@ -342,10 +342,86 @@
   function makeNodeId(level, parts, refInfo, source, sourceEntries) {
     const pathId = `L${level}:path:${parts.map((p) => String(p || "").trim()).join("›")}`;
     const hasStableLevelSource = hasLevelSpecificSource(sourceEntries, level);
+    if (hasStableLevelSource && source.tableId && source.rowId != null) return `L${level}:src:${source.tableId}:${source.rowId}`;
     if (refInfo && refInfo.tableId && refInfo.rowId != null) return `L${level}:ref:${refInfo.tableId}:${refInfo.rowId}`;
     if (refInfo && refInfo.rowId != null) return `L${level}:ref:${refInfo.rowId}`;
-    if (hasStableLevelSource && source.tableId && source.rowId != null) return `L${level}:src:${source.tableId}:${source.rowId}`;
     return pathId;
+  }
+
+  function normalizedHierarchyLabel(value) {
+    return String(value || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLocaleLowerCase("fr");
+  }
+
+  function groupingKey(node) {
+    return `${node.level}::${node.parentId || ""}::${normalizedHierarchyLabel(node.label)}`;
+  }
+
+  function earliestDate(a, b) {
+    if (!a) return b || null;
+    if (!b) return a;
+    return a < b ? a : b;
+  }
+
+  function latestDate(a, b) {
+    if (!a) return b || null;
+    if (!b) return a;
+    return a > b ? a : b;
+  }
+
+  function mergeDuplicateNodeData(target, duplicate) {
+    for (const rowId of duplicate.rawRows) {
+      if (!target.rawRows.includes(rowId)) target.rawRows.push(rowId);
+    }
+    if (duplicate.sourceIndex < target.sourceIndex) target.sourceIndex = duplicate.sourceIndex;
+    if (!target.firstDisplayRowId && duplicate.firstDisplayRowId) target.firstDisplayRowId = duplicate.firstDisplayRowId;
+
+    target.startDate = earliestDate(target.startDate, duplicate.startDate);
+    target.endDate = latestDate(target.endDate, duplicate.endDate);
+    target.explicitDates = target.explicitDates || duplicate.explicitDates;
+    if (!target.status && duplicate.status) target.status = duplicate.status;
+    if (!target.responsible && duplicate.responsible) target.responsible = duplicate.responsible;
+    if (target.progress == null && duplicate.progress != null) target.progress = duplicate.progress;
+    if (target.order == null || (duplicate.order != null && duplicate.order < target.order)) target.order = duplicate.order;
+
+    target.source = {
+      tableId: target.source.tableId || duplicate.source.tableId || null,
+      rowId: target.source.rowId != null ? target.source.rowId : duplicate.source.rowId,
+      startCol: target.source.startCol || duplicate.source.startCol || null,
+      endCol: target.source.endCol || duplicate.source.endCol || null,
+      progressCol: target.source.progressCol || duplicate.source.progressCol || null
+    };
+    target.fallbackAliases = target.fallbackAliases || duplicate.fallbackAliases;
+  }
+
+  function dedupeHierarchySiblings(siblings, nodes) {
+    const unique = [];
+    const byKey = new Map();
+
+    for (const node of siblings) {
+      const key = groupingKey(node);
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, node);
+        unique.push(node);
+        continue;
+      }
+
+      mergeDuplicateNodeData(existing, node);
+      for (const child of node.children) {
+        child.parentId = existing.id;
+        existing.children.push(child);
+      }
+      nodes.delete(node.id);
+    }
+
+    for (const node of unique) {
+      node.children = dedupeHierarchySiblings(node.children, nodes);
+    }
+
+    return unique;
   }
 
   function createEmptyNode({ id, level, label, parentId, sourceIndex, sourceRowId, source }) {
@@ -497,10 +573,11 @@
       return node;
     }
 
-    roots.sort(sortNodes).forEach(finalize);
+    const dedupedRoots = dedupeHierarchySiblings(roots, nodes);
+    dedupedRoots.sort(sortNodes).forEach(finalize);
     nodeById = nodes;
     allRecords = Array.from(nodes.values());
-    treeRoots = roots;
+    treeRoots = dedupedRoots;
     return allRecords;
   }
 
