@@ -16,6 +16,7 @@ Le widget peut lire une table liée/consolidée pour construire le Gantt, puis �
 - Coloration configurable par niveau, nom, statut, responsable, avancement, table source ou dates.
 - Infobulles riches au survol : dates, niveau, statut, responsable, avancement, source.
 - Édition des dates par glisser-déposer sur les barres explicitement datées.
+- Édition rapide du nom, du statut, du responsable et de l’avancement par double-clic sur une ligne ou une barre.
 - Routage d’écriture vers les tables sources via `grist.docApi.applyUserActions`.
 - Persistance locale de l’état UI via `localStorage`.
 
@@ -48,7 +49,10 @@ Pour qu’un déplacement/redimensionnement depuis le widget écrive dans la vra
 - `levelNSourceRowId` : id de la ligne source réelle.
 - `levelNStartColId` : id de la colonne date de début source.
 - `levelNEndColId` : id de la colonne date de fin source.
-- `levelNProgressColId` : id de la colonne avancement source (prévu pour extension d’écriture de l’avancement).
+- `levelNNameColId` : id de la colonne nom source.
+- `levelNStatusColId` : id de la colonne statut source.
+- `levelNResponsibleColId` : id de la colonne responsable source.
+- `levelNProgressColId` : id de la colonne avancement source.
 
 Exemple généralisé :
 
@@ -61,6 +65,8 @@ const tableHandlers = {
 ```
 
 Dans le widget, cette logique devient déclarative dans les colonnes mappées : une barre sait de quelle table source elle vient, quelle ligne source modifier, et quelles colonnes source mettre à jour.
+
+Pour modifier un champ métier depuis la timeline, double-cliquez sur la ligne de gauche, une barre ou un jalon, choisissez `name`, `status`, `responsible` ou `progress`, puis saisissez la nouvelle valeur. Les dates gardent leur édition par glisser-déposer lorsque le bouton d’édition des dates est actif.
 
 Si ces colonnes source ne sont pas fournies, le widget conserve un fallback et tente d’écrire dans la table sélectionnée via le mapping Grist.
 
