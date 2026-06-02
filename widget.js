@@ -287,13 +287,21 @@
     return null;
   }
 
-  function mappedValue(mapped, aliases) {
+  function mappedEntry(mapped, aliases) {
     for (const alias of aliases || []) {
       if (Object.prototype.hasOwnProperty.call(mapped, alias) && mapped[alias] !== undefined && mapped[alias] !== null && String(mapped[alias]).trim() !== "") {
-        return mapped[alias];
+        return { alias, value: mapped[alias] };
       }
     }
-    return null;
+    return { alias: null, value: null };
+  }
+
+  function mappedValue(mapped, aliases) {
+    return mappedEntry(mapped, aliases).value;
+  }
+
+  function hasLevelSpecificSource(sourceEntries, level) {
+    return !!(sourceEntries?.rowId?.alias && sourceEntries.rowId.alias.startsWith(`level${level}`));
   }
 
   function parseRefValue(value) {
@@ -331,11 +339,13 @@
     return Math.max(0, Math.min(100, n <= 1 ? n * 100 : n));
   }
 
-  function makeNodeId(level, parts, refInfo, source) {
-    if (source.tableId && source.rowId != null) return `L${level}:src:${source.tableId}:${source.rowId}`;
+  function makeNodeId(level, parts, refInfo, source, sourceEntries) {
+    const pathId = `L${level}:path:${parts.map((p) => String(p || "").trim()).join("›")}`;
+    const hasStableLevelSource = hasLevelSpecificSource(sourceEntries, level);
     if (refInfo && refInfo.tableId && refInfo.rowId != null) return `L${level}:ref:${refInfo.tableId}:${refInfo.rowId}`;
     if (refInfo && refInfo.rowId != null) return `L${level}:ref:${refInfo.rowId}`;
-    return `L${level}:path:${parts.map((p) => String(p || "").trim()).join("›")}`;
+    if (hasStableLevelSource && source.tableId && source.rowId != null) return `L${level}:src:${source.tableId}:${source.rowId}`;
+    return pathId;
   }
 
   function createEmptyNode({ id, level, label, parentId, sourceIndex, sourceRowId, source }) {
@@ -419,14 +429,21 @@
         }
 
         pathLabels.push(label);
-        const source = {
-          tableId: coalesce(mappedValue(mapped, cfg.sourceTable), ref.tableId),
-          rowId: Number(coalesce(mappedValue(mapped, cfg.sourceRow), ref.rowId)) || null,
-          startCol: mappedValue(mapped, cfg.sourceStartCol),
-          endCol: mappedValue(mapped, cfg.sourceEndCol),
-          progressCol: mappedValue(mapped, cfg.sourceProgressCol)
+        const sourceEntries = {
+          tableId: mappedEntry(mapped, cfg.sourceTable),
+          rowId: mappedEntry(mapped, cfg.sourceRow),
+          startCol: mappedEntry(mapped, cfg.sourceStartCol),
+          endCol: mappedEntry(mapped, cfg.sourceEndCol),
+          progressCol: mappedEntry(mapped, cfg.sourceProgressCol)
         };
-        const nodeId = makeNodeId(level, pathLabels, ref, source);
+        const source = {
+          tableId: coalesce(sourceEntries.tableId.value, ref.tableId),
+          rowId: Number(coalesce(sourceEntries.rowId.value, ref.rowId)) || null,
+          startCol: sourceEntries.startCol.value,
+          endCol: sourceEntries.endCol.value,
+          progressCol: sourceEntries.progressCol.value
+        };
+        const nodeId = makeNodeId(level, pathLabels, ref, source, sourceEntries);
 
         if (!nodes.has(nodeId)) {
           const node = createEmptyNode({
@@ -530,19 +547,22 @@
 
   function getNavigationBounds() {
     if (!globalMinDate || !globalMaxDate) return { minAllowed: null, maxAllowed: null };
+    const today = normalizeDate(new Date());
+    const minDate = today && today < globalMinDate ? today : globalMinDate;
+    const maxDate = today && today > globalMaxDate ? today : globalMaxDate;
     if (zoomMode === "all") {
       return {
-        minAllowed: new Date(globalMinDate.getFullYear() - 2, 0, 1),
-        maxAllowed: new Date(globalMaxDate.getFullYear() + 2, 11, 31)
+        minAllowed: new Date(minDate.getFullYear() - 2, 0, 1),
+        maxAllowed: new Date(maxDate.getFullYear() + 2, 11, 31)
       };
     }
-    const fullSpan = diffInDays(globalMinDate, globalMaxDate) + 1;
+    const fullSpan = diffInDays(minDate, maxDate) + 1;
     const requested = ZOOMS[zoomMode]?.spanDays || fullSpan;
     const marginDays = Math.max(15, requested);
-    return { minAllowed: addDays(globalMinDate, -marginDays), maxAllowed: addDays(globalMaxDate, marginDays) };
+    return { minAllowed: addDays(minDate, -marginDays), maxAllowed: addDays(maxDate, marginDays) };
   }
 
-  function setVisibleRangeForZoom(centerOnToday) {
+  function setVisibleRangeForZoom(anchorOnToday) {
     if (!globalMinDate || !globalMaxDate) {
       visibleStart = null;
       visibleEnd = null;
@@ -555,8 +575,8 @@
     }
     const span = ZOOMS[zoomMode]?.spanDays || 30;
     const fullSpan = diffInDays(globalMinDate, globalMaxDate) + 1;
-    const center = centerOnToday ? normalizeDate(new Date()) : addDays(globalMinDate, Math.floor(fullSpan / 2));
-    let start = addDays(center, -Math.floor(span / 2));
+    const anchor = anchorOnToday ? normalizeDate(new Date()) : addDays(globalMinDate, Math.floor(fullSpan / 2));
+    let start = addDays(anchor, anchorOnToday ? -Math.floor(span / 3) : -Math.floor(span / 2));
     let end = addDays(start, span - 1);
     const { minAllowed, maxAllowed } = getNavigationBounds();
     if (start < minAllowed) { start = new Date(minAllowed.getTime()); end = addDays(start, span - 1); }
@@ -566,7 +586,7 @@
   }
 
   function keepOrRecomputeVisibleRange() {
-    if (!visibleStart || !visibleEnd) return setVisibleRangeForZoom(false);
+    if (!visibleStart || !visibleEnd) return setVisibleRangeForZoom(true);
     const { minAllowed, maxAllowed } = getNavigationBounds();
     if (!minAllowed || !maxAllowed) return setVisibleRangeForZoom(false);
     const span = diffInDays(visibleStart, visibleEnd) + 1;
