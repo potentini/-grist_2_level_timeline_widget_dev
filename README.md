@@ -7,6 +7,7 @@ Le widget peut lire une table liée/consolidée pour construire le Gantt, puis �
 ## Fonctionnalités principales
 
 - Affichage Gantt hiérarchique `Niveau 1 → Niveau 2 → Niveau 3`.
+- Regroupement automatique des doublons hiérarchiques : un même parent n’apparaît qu’une fois et rassemble tous ses enfants associés.
 - Champs essentiels par niveau : nom, date de début, date de fin, statut, responsable, avancement.
 - Niveau 1 obligatoire ; niveaux 2 et 3 facultatifs.
 - Zoom temporel : `jour`, `semaine`, `mois`, `année`, `tout`.
