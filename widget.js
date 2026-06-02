@@ -72,6 +72,9 @@
     sourceTable: "Table source"
   };
 
+  const TODAY_POSITION_RATIO = 1 / 3;
+  const NAVIGATION_STEP_RATIO = 1 / 6;
+
   let zoomMode = "day";
   let allRecords = [];
   let treeRoots = [];
@@ -639,22 +642,42 @@
     return { minAllowed: addDays(minDate, -marginDays), maxAllowed: addDays(maxDate, marginDays) };
   }
 
-  function setVisibleRangeForZoom(anchorOnToday) {
+  function positionRangeAroundToday(span) {
+    const today = normalizeDate(new Date());
+    const daysBeforeToday = Math.floor(span * TODAY_POSITION_RATIO);
+    const start = addDays(today, -daysBeforeToday);
+    return { start, end: addDays(start, span - 1) };
+  }
+
+  function setAllZoomRangeAroundToday() {
+    const today = normalizeDate(new Date());
+    const minDate = today && today < globalMinDate ? today : globalMinDate;
+    const maxDate = today && today > globalMaxDate ? today : globalMaxDate;
+    const daysBeforeData = Math.max(0, diffInDays(minDate, today));
+    const daysAfterData = Math.max(0, diffInDays(today, maxDate));
+    const minSpanForTodayOffset = Math.ceil((daysBeforeData + 1) / TODAY_POSITION_RATIO);
+    const minSpanForDataAfterToday = Math.ceil((daysAfterData + 1) / (1 - TODAY_POSITION_RATIO));
+    const dataSpan = diffInDays(minDate, maxDate) + 1;
+    const span = Math.max(dataSpan, minSpanForTodayOffset, minSpanForDataAfterToday, 30);
+    const range = positionRangeAroundToday(span);
+    visibleStart = range.start;
+    visibleEnd = range.end;
+  }
+
+  function setVisibleRangeForZoom() {
     if (!globalMinDate || !globalMaxDate) {
       visibleStart = null;
       visibleEnd = null;
       return;
     }
     if (zoomMode === "all") {
-      visibleStart = new Date(globalMinDate.getFullYear() - 1, 0, 1);
-      visibleEnd = new Date(globalMaxDate.getFullYear() + 1, 11, 31);
+      setAllZoomRangeAroundToday();
       return;
     }
     const span = ZOOMS[zoomMode]?.spanDays || 30;
-    const fullSpan = diffInDays(globalMinDate, globalMaxDate) + 1;
-    const anchor = anchorOnToday ? normalizeDate(new Date()) : addDays(globalMinDate, Math.floor(fullSpan / 2));
-    let start = addDays(anchor, anchorOnToday ? -Math.floor(span / 3) : -Math.floor(span / 2));
-    let end = addDays(start, span - 1);
+    const range = positionRangeAroundToday(span);
+    let start = range.start;
+    let end = range.end;
     const { minAllowed, maxAllowed } = getNavigationBounds();
     if (start < minAllowed) { start = new Date(minAllowed.getTime()); end = addDays(start, span - 1); }
     if (end > maxAllowed) { end = new Date(maxAllowed.getTime()); start = addDays(end, -span + 1); }
@@ -663,9 +686,9 @@
   }
 
   function keepOrRecomputeVisibleRange() {
-    if (!visibleStart || !visibleEnd) return setVisibleRangeForZoom(true);
+    if (!visibleStart || !visibleEnd) return setVisibleRangeForZoom();
     const { minAllowed, maxAllowed } = getNavigationBounds();
-    if (!minAllowed || !maxAllowed) return setVisibleRangeForZoom(false);
+    if (!minAllowed || !maxAllowed) return setVisibleRangeForZoom();
     const span = diffInDays(visibleStart, visibleEnd) + 1;
     let start = new Date(visibleStart.getTime());
     let end = new Date(visibleEnd.getTime());
@@ -677,9 +700,9 @@
 
   function shiftVisibleRange(direction) {
     if (!visibleStart || !visibleEnd) return;
-    const step = zoomMode === "day" ? 7 : zoomMode === "week" ? 28 : zoomMode === "month" ? 90 : zoomMode === "year" ? 365 : Math.max(30, Math.round((diffInDays(visibleStart, visibleEnd) + 1) / 3));
-    const delta = direction === "left" ? -step : step;
     const span = diffInDays(visibleStart, visibleEnd) + 1;
+    const step = Math.max(1, Math.round(span * NAVIGATION_STEP_RATIO));
+    const delta = direction === "left" ? -step : step;
     visibleStart = addDays(visibleStart, delta);
     visibleEnd = addDays(visibleEnd, delta);
     const { minAllowed, maxAllowed } = getNavigationBounds();
@@ -1235,7 +1258,7 @@
     btn.addEventListener("click", () => {
       zoomMode = btn.dataset.zoom;
       updateZoomButtons();
-      setVisibleRangeForZoom(false);
+      setVisibleRangeForZoom();
       saveState();
       render();
     });
@@ -1243,7 +1266,7 @@
 
   prevBtn.addEventListener("click", () => shiftVisibleRange("left"));
   nextBtn.addEventListener("click", () => shiftVisibleRange("right"));
-  todayBtn.addEventListener("click", () => { setVisibleRangeForZoom(true); saveState(); render(); });
+  todayBtn.addEventListener("click", () => { setVisibleRangeForZoom(); saveState(); render(); });
   toggleSidebarBtn.addEventListener("click", () => {
     const collapsed = ganttContainer.classList.toggle("sidebar-collapsed");
     toggleSidebarBtn.textContent = collapsed ? "Afficher liste" : "Masquer liste";
