@@ -11,7 +11,7 @@ Le widget peut lire une table liée/consolidée pour construire le Gantt, puis �
 - Champs essentiels par niveau : nom, date de début, date de fin, statut, responsable, avancement.
 - Niveau 1 obligatoire ; niveaux 2 et 3 facultatifs.
 - Zoom temporel : `jour`, `semaine`, `mois`, `année`, `tout`.
-- Navigation temporelle : précédent / suivant / aujourd’hui.
+- Navigation temporelle : précédent / suivant / aujourd’hui, avec aujourd’hui placé dans le premier tiers de la timeline et un pas de déplacement réduit.
 - Repli / dépli global et par nœud hiérarchique.
 - Coloration configurable par niveau, nom, statut, responsable, avancement, table source ou dates.
 - Infobulles riches au survol : dates, niveau, statut, responsable, avancement, source.
