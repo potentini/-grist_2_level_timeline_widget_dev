@@ -29,6 +29,8 @@
       progress: ["level1Progress"],
       sourceTable: ["level1SourceTableId"],
       sourceRow: ["level1SourceRowId"],
+      sourceNameCol: ["level1NameColId"],
+      sourceParentRowCol: ["level1ParentRowColId"],
       sourceStartCol: ["level1StartColId"],
       sourceEndCol: ["level1EndColId"],
       sourceProgressCol: ["level1ProgressColId"]
@@ -42,6 +44,8 @@
       progress: ["level2Progress"],
       sourceTable: ["level2SourceTableId"],
       sourceRow: ["level2SourceRowId"],
+      sourceNameCol: ["level2NameColId"],
+      sourceParentRowCol: ["level2ParentRowColId"],
       sourceStartCol: ["level2StartColId"],
       sourceEndCol: ["level2EndColId"],
       sourceProgressCol: ["level2ProgressColId"]
@@ -55,6 +59,8 @@
       progress: ["level3Progress"],
       sourceTable: ["level3SourceTableId"],
       sourceRow: ["level3SourceRowId"],
+      sourceNameCol: ["level3NameColId"],
+      sourceParentRowCol: ["level3ParentRowColId"],
       sourceStartCol: ["level3StartColId"],
       sourceEndCol: ["level3EndColId"],
       sourceProgressCol: ["level3ProgressColId"]
@@ -94,6 +100,7 @@
   let currentMappingsOk = false;
   let latestMappings = null;
   let latestWriteSummary = "selectedTable.update";
+  let latestCompletionStats = { level1: 0, level2: 0 };
 
   const STORAGE_KEY = "grist_gantt_multilevel_state_v1";
 
@@ -402,6 +409,8 @@
     target.source = {
       tableId: target.source.tableId || duplicate.source.tableId || null,
       rowId: target.source.rowId != null ? target.source.rowId : duplicate.source.rowId,
+      nameCol: target.source.nameCol || duplicate.source.nameCol || null,
+      parentRowCol: target.source.parentRowCol || duplicate.source.parentRowCol || null,
       startCol: target.source.startCol || duplicate.source.startCol || null,
       endCol: target.source.endCol || duplicate.source.endCol || null,
       progressCol: target.source.progressCol || duplicate.source.progressCol || null
@@ -481,6 +490,8 @@
     node.source = {
       tableId: node.source.tableId || data.source.tableId || null,
       rowId: node.source.rowId != null ? node.source.rowId : data.source.rowId,
+      nameCol: node.source.nameCol || data.source.nameCol || null,
+      parentRowCol: node.source.parentRowCol || data.source.parentRowCol || null,
       startCol: node.source.startCol || data.source.startCol || null,
       endCol: node.source.endCol || data.source.endCol || null,
       progressCol: node.source.progressCol || data.source.progressCol || null
@@ -488,9 +499,173 @@
     node.fallbackAliases = data.fallbackAliases || node.fallbackAliases;
   }
 
-  function buildLogicalRecords(records) {
+  function extractRowId(value) {
+    if (value == null || value === "") return null;
+    if (Array.isArray(value)) {
+      if (!value.length) return null;
+      if (value[0] === "L" && value.length > 1) return extractRowId(value[1]);
+      return extractRowId(value[0]);
+    }
+    if (typeof value === "object") {
+      return extractRowId(value.id ?? value.rowId ?? value.Ref ?? value.ref ?? value.value);
+    }
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  function tableDataToRows(tableData) {
+    if (!tableData || Array.isArray(tableData)) return Array.isArray(tableData) ? tableData : [];
+    const ids = tableData.id || tableData.Id || tableData.ID || [];
+    return ids.map((id, idx) => {
+      const row = { id };
+      for (const [colId, values] of Object.entries(tableData)) {
+        if (Array.isArray(values)) row[colId] = values[idx];
+      }
+      return row;
+    });
+  }
+
+  function rememberSourceConfig(configs, level, source) {
+    if (!source.tableId) return;
+    const existing = configs[level] || {};
+    configs[level] = {
+      tableId: existing.tableId || source.tableId,
+      nameCol: existing.nameCol || source.nameCol || null,
+      parentRowCol: existing.parentRowCol || source.parentRowCol || null,
+      startCol: existing.startCol || source.startCol || null,
+      endCol: existing.endCol || source.endCol || null,
+      progressCol: existing.progressCol || source.progressCol || null
+    };
+  }
+
+  function makeNodeIdFromSource(level, source, fallbackLabel, parentId) {
+    if (source.tableId && source.rowId != null) return `L${level}:src:${source.tableId}:${source.rowId}`;
+    return `L${level}:path:${[parentId || "", fallbackLabel || ""].join("›")}`;
+  }
+
+  function addOrMergeNode(nodes, roots, nodeData) {
+    let node = nodes.get(nodeData.id);
+    if (!node) {
+      node = createEmptyNode({
+        id: nodeData.id,
+        level: nodeData.level,
+        label: nodeData.label,
+        parentId: nodeData.parentId,
+        sourceIndex: nodeData.sourceIndex,
+        sourceRowId: nodeData.displayRowId,
+        source: nodeData.source
+      });
+      nodes.set(node.id, node);
+      if (node.parentId && nodes.has(node.parentId)) {
+        const parent = nodes.get(node.parentId);
+        if (!parent.children.includes(node)) parent.children.push(node);
+      } else if (!roots.includes(node)) {
+        roots.push(node);
+      }
+    }
+
+    mergeNodeData(node, {
+      displayRowId: nodeData.displayRowId,
+      sourceIndex: nodeData.sourceIndex,
+      startDate: nodeData.startDate,
+      endDate: nodeData.endDate,
+      status: nodeData.status || "",
+      responsible: nodeData.responsible || "",
+      progress: nodeData.progress,
+      source: nodeData.source,
+      fallbackAliases: nodeData.fallbackAliases || {}
+    });
+    return node;
+  }
+
+  async function fetchSourceRows(tableId) {
+    if (!tableId || !grist.docApi?.fetchTable) return [];
+    try {
+      return tableDataToRows(await grist.docApi.fetchTable(tableId));
+    } catch (e) {
+      console.warn("Impossible de lire la table source", tableId, e);
+      return [];
+    }
+  }
+
+  function labelFromSourceRow(row, config, level) {
+    const candidates = [
+      config.nameCol,
+      "Name", "name", "Nom", "nom", "Titre", "titre", "Title", "title", "Libelle", "Libellé", "Description"
+    ].filter(Boolean);
+    for (const colId of candidates) {
+      const parsed = parseRefValue(row[colId]);
+      const label = (parsed.label || "").trim();
+      if (label) return label;
+    }
+    return `(Niveau ${level} #${row.id})`;
+  }
+
+  async function addMissingSourceLevel(nodes, roots, configs, level, parentLevel) {
+    const config = configs[level];
+    if (!config?.tableId) return 0;
+
+    const existingSourceRows = new Set(
+      Array.from(nodes.values())
+        .filter((node) => node.level === level && node.source.tableId === config.tableId && node.source.rowId != null)
+        .map((node) => Number(node.source.rowId))
+    );
+    const parentBySourceRow = new Map();
+    for (const node of Array.from(nodes.values()).filter((n) => n.level === parentLevel && n.source.rowId != null)) {
+      const rowId = Number(node.source.rowId);
+      parentBySourceRow.set(`${node.source.tableId || configs[parentLevel]?.tableId || ""}:${rowId}`, node);
+      if (!parentBySourceRow.has(`:${rowId}`)) parentBySourceRow.set(`:${rowId}`, node);
+    }
+
+    const rows = await fetchSourceRows(config.tableId);
+    let added = 0;
+    let syntheticIndex = 1000000 + level * 100000;
+    for (const row of rows) {
+      const rowId = extractRowId(row.id ?? row.Id ?? row.ID);
+      if (!rowId || existingSourceRows.has(rowId)) continue;
+
+      let parentId = null;
+      if (parentLevel && config.parentRowCol) {
+        const parentRowId = extractRowId(row[config.parentRowCol]);
+        const parentTableId = configs[parentLevel]?.tableId || "";
+        const parentNode = parentBySourceRow.get(`${parentTableId}:${parentRowId}`) || parentBySourceRow.get(`:${parentRowId}`);
+        if (parentNode) parentId = parentNode.id;
+      }
+      if (parentLevel && !parentId) continue;
+
+      const label = labelFromSourceRow(row, config, level);
+      const source = {
+        tableId: config.tableId,
+        rowId,
+        nameCol: config.nameCol || null,
+        parentRowCol: config.parentRowCol || null,
+        startCol: config.startCol || null,
+        endCol: config.endCol || null,
+        progressCol: config.progressCol || null
+      };
+      addOrMergeNode(nodes, roots, {
+        id: makeNodeIdFromSource(level, source, label, parentId),
+        level,
+        label,
+        parentId,
+        displayRowId: `source:${config.tableId}:${rowId}`,
+        sourceIndex: syntheticIndex++,
+        startDate: normalizeDate(config.startCol ? row[config.startCol] : null),
+        endDate: normalizeDate(config.endCol ? row[config.endCol] : null),
+        progress: parseProgress(config.progressCol ? row[config.progressCol] : null),
+        source,
+        fallbackAliases: {}
+      });
+      added += 1;
+    }
+    return added;
+  }
+
+  async function buildLogicalRecords(records) {
     const nodes = new Map();
     const roots = [];
+    const sourceConfigs = { 1: {}, 2: {}, 3: {} };
+
     for (const [idx, raw] of (records || []).entries()) {
       if (!raw) continue;
       const mapped = grist.mapColumnNames(raw, { mappings: latestMappings });
@@ -515,37 +690,31 @@
         const sourceEntries = {
           tableId: mappedEntry(mapped, cfg.sourceTable),
           rowId: mappedEntry(mapped, cfg.sourceRow),
+          nameCol: mappedEntry(mapped, cfg.sourceNameCol),
+          parentRowCol: mappedEntry(mapped, cfg.sourceParentRowCol),
           startCol: mappedEntry(mapped, cfg.sourceStartCol),
           endCol: mappedEntry(mapped, cfg.sourceEndCol),
           progressCol: mappedEntry(mapped, cfg.sourceProgressCol)
         };
         const source = {
           tableId: coalesce(sourceEntries.tableId.value, ref.tableId),
-          rowId: Number(coalesce(sourceEntries.rowId.value, ref.rowId)) || null,
+          rowId: extractRowId(coalesce(sourceEntries.rowId.value, ref.rowId)),
+          nameCol: sourceEntries.nameCol.value,
+          parentRowCol: sourceEntries.parentRowCol.value,
           startCol: sourceEntries.startCol.value,
           endCol: sourceEntries.endCol.value,
           progressCol: sourceEntries.progressCol.value
         };
+        rememberSourceConfig(sourceConfigs, level, source);
         const nodeId = makeNodeId(level, pathLabels, ref, source, sourceEntries);
-
-        if (!nodes.has(nodeId)) {
-          const node = createEmptyNode({
-            id: nodeId,
-            level,
-            label,
-            parentId,
-            sourceIndex: idx,
-            sourceRowId: displayRowId,
-            source
-          });
-          nodes.set(nodeId, node);
-          if (parentId && nodes.has(parentId)) nodes.get(parentId).children.push(node);
-          else roots.push(node);
-        }
 
         const startDate = normalizeDate(mappedValue(mapped, cfg.start));
         const endDate = normalizeDate(mappedValue(mapped, cfg.end));
-        mergeNodeData(nodes.get(nodeId), {
+        addOrMergeNode(nodes, roots, {
+          id: nodeId,
+          level,
+          label,
+          parentId,
           displayRowId,
           sourceIndex: idx,
           startDate,
@@ -560,6 +729,11 @@
         parentId = nodeId;
       }
     }
+
+    latestCompletionStats = {
+      level1: await addMissingSourceLevel(nodes, roots, sourceConfigs, 1, null),
+      level2: await addMissingSourceLevel(nodes, roots, sourceConfigs, 2, 1)
+    };
 
     function finalize(node) {
       let min = node.startDate || null;
@@ -1269,7 +1443,8 @@
   function refreshTableInfo() {
     const mappedCols = latestMappings && latestMappings.columns ? Object.keys(latestMappings.columns).length : latestMappings ? Object.keys(latestMappings).length : 0;
     const routed = allRecords.filter((n) => n.source.tableId && n.source.rowId != null).length;
-    mappingInfoEl.textContent = `Mapping actif : ${currentMappingsOk ? "oui" : "non"}, table liée = ${currentTableId || "inconnue"}, mappings reçus = ${mappedCols}, niveaux = 1/2/3, écritures routées = ${routed}/${allRecords.length}`;
+    const completed = `complétés = N1:${latestCompletionStats.level1 || 0}, N2:${latestCompletionStats.level2 || 0}`;
+    mappingInfoEl.textContent = `Mapping actif : ${currentMappingsOk ? "oui" : "non"}, table liée = ${currentTableId || "inconnue"}, mappings reçus = ${mappedCols}, niveaux = 1/2/3, écritures routées = ${routed}/${allRecords.length}, ${completed}`;
     setDebugSyncMode(latestWriteSummary);
   }
 
@@ -1346,6 +1521,7 @@
     mappingPanelEl.innerHTML = `
       <div><strong>Mapping multi-niveau</strong> : mappez au minimum <code>level1Name</code>. Les niveaux 2 et 3 sont optionnels.</div>
       <div>Pour écrire dans les vraies tables sources, exposez pour chaque niveau : <code>levelNSourceTableId</code>, <code>levelNSourceRowId</code>, <code>levelNStartColId</code>, <code>levelNEndColId</code> (et éventuellement <code>levelNProgressColId</code>).</div>
+      <div>Pour compléter les parents absents depuis les tables sources, exposez aussi <code>levelNNameColId</code>. Pour les niveaux 2 sans niveau 3, exposez <code>level2ParentRowColId</code>; les niveaux 1 sans niveau 2 sont ajoutés comme racines dès que <code>level1SourceTableId</code> est disponible.</div>
       <div>Exemple : Projets → Tâches → Sous-tâches avec <code>level1SourceTableId=Projets</code>, <code>level2SourceTableId=Taches</code>, <code>level3SourceTableId=Sous_taches</code>.</div>
     `;
     toggleMappingPanelBtn.addEventListener("click", () => {
@@ -1371,6 +1547,8 @@
       { name: "level1Progress", title: "Niveau 1 — avancement", optional: true },
       { name: "level1SourceTableId", title: "Niveau 1 — table source", optional: true },
       { name: "level1SourceRowId", title: "Niveau 1 — id source", optional: true },
+      { name: "level1NameColId", title: "Niveau 1 — colonne nom source", optional: true },
+      { name: "level1ParentRowColId", title: "Niveau 1 — colonne parent source", optional: true },
       { name: "level1StartColId", title: "Niveau 1 — colonne début source", optional: true },
       { name: "level1EndColId", title: "Niveau 1 — colonne fin source", optional: true },
       { name: "level1ProgressColId", title: "Niveau 1 — colonne avancement source", optional: true },
@@ -1383,6 +1561,8 @@
       { name: "level2Progress", title: "Niveau 2 — avancement", optional: true },
       { name: "level2SourceTableId", title: "Niveau 2 — table source", optional: true },
       { name: "level2SourceRowId", title: "Niveau 2 — id source", optional: true },
+      { name: "level2NameColId", title: "Niveau 2 — colonne nom source", optional: true },
+      { name: "level2ParentRowColId", title: "Niveau 2 — colonne parent source", optional: true },
       { name: "level2StartColId", title: "Niveau 2 — colonne début source", optional: true },
       { name: "level2EndColId", title: "Niveau 2 — colonne fin source", optional: true },
       { name: "level2ProgressColId", title: "Niveau 2 — colonne avancement source", optional: true },
@@ -1395,6 +1575,8 @@
       { name: "level3Progress", title: "Niveau 3 — avancement", optional: true },
       { name: "level3SourceTableId", title: "Niveau 3 — table source", optional: true },
       { name: "level3SourceRowId", title: "Niveau 3 — id source", optional: true },
+      { name: "level3NameColId", title: "Niveau 3 — colonne nom source", optional: true },
+      { name: "level3ParentRowColId", title: "Niveau 3 — colonne parent source", optional: true },
       { name: "level3StartColId", title: "Niveau 3 — colonne début source", optional: true },
       { name: "level3EndColId", title: "Niveau 3 — colonne fin source", optional: true },
       { name: "level3ProgressColId", title: "Niveau 3 — colonne avancement source", optional: true },
@@ -1415,6 +1597,7 @@
       treeRoots = [];
       flatTracks = [];
       nodeById = new Map();
+      latestCompletionStats = { level1: 0, level2: 0 };
       globalMinDate = null;
       globalMaxDate = null;
       currentMappingsOk = false;
@@ -1431,7 +1614,7 @@
       setDebugStatus("Mapping KO");
     }
 
-    buildLogicalRecords(records);
+    await buildLogicalRecords(records);
     const range = computeGlobalRange(allRecords);
     globalMinDate = range.min;
     globalMaxDate = range.max;
