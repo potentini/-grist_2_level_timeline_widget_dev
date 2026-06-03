@@ -8,6 +8,7 @@ Le widget peut lire une table liée/consolidée pour construire le Gantt, puis �
 
 - Affichage Gantt hiérarchique `Niveau 1 → Niveau 2 → Niveau 3`.
 - Regroupement automatique des doublons hiérarchiques : un même parent n’apparaît qu’une fois et rassemble tous ses enfants associés.
+- Complétion optionnelle des niveaux 1 et 2 depuis les tables sources, afin d’afficher aussi les parents qui n’ont aucun élément de niveau 3 lorsque la table liée du widget est `Niveau3`, ainsi que les éléments de niveau 1 qui n’ont aucun niveau 2.
 - Champs essentiels par niveau : nom, date de début, date de fin, statut, responsable, avancement.
 - Niveau 1 obligatoire ; niveaux 2 et 3 facultatifs.
 - Zoom temporel : `jour`, `semaine`, `mois`, `année`, `tout`.
@@ -50,6 +51,13 @@ Pour qu’un déplacement/redimensionnement depuis le widget écrive dans la vra
 - `levelNEndColId` : id de la colonne date de fin source.
 - `levelNProgressColId` : id de la colonne avancement source (prévu pour extension d’écriture de l’avancement).
 
+Pour afficher tous les niveaux 1 et 2 même quand la table liée du widget est `Niveau3`, ajoutez aussi ces colonnes constantes ou calculées dans la table liée :
+
+- `levelNNameColId` : id de la colonne libellé dans la table source du niveau N, par exemple `Nom` ou `Titre`.
+- `level2ParentRowColId` : id de la colonne de référence, dans la table source du niveau 2, qui pointe vers la ligne du niveau 1.
+
+Avec ces informations et l’accès `full`, le widget lit les tables sources via l’API Grist et ajoute les lignes de niveau 1/2 absentes du jeu `Niveau3`. Les niveaux 2 sans niveau 3 sont rattachés à leur niveau 1 grâce à `level2ParentRowColId`; les niveaux 1 sans niveau 2 sont ajoutés comme racines dès que `level1SourceTableId` permet de lire la table source du niveau 1.
+
 Exemple généralisé :
 
 ```js
@@ -85,6 +93,7 @@ Si ces colonnes source ne sont pas fournies, le widget conserve un fallback et t
 ## Limites connues
 
 - Une barre agrégée à partir de ses enfants sans dates propres n’est pas éditable directement : mappez les dates/source du niveau concerné pour la rendre modifiable.
+- La complétion des parents absents nécessite que les colonnes source (`levelNSourceTableId`, `levelNSourceRowId`, `levelNNameColId`, et `level2ParentRowColId` pour le niveau 2) soient exposées par la table liée.
 - Le widget dépend de la qualité des colonnes source exposées par la table consolidée.
 - Les performances peuvent baisser sur de très gros volumes de lignes.
 - La persistance d’état étant locale au navigateur, elle n’est pas partagée entre utilisateurs.
