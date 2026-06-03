@@ -21,43 +21,43 @@
 
   const LEVEL_ALIASES = {
     1: {
-      name: ["level1Name", "parent", "name", "title"],
-      start: ["level1Start", "parentStart", "start"],
-      end: ["level1End", "parentEnd", "end"],
-      status: ["level1Status", "status"],
-      responsible: ["level1Responsible", "respPol", "respOp", "responsible"],
-      progress: ["level1Progress", "progress", "avance", "avancement"],
-      sourceTable: ["level1SourceTableId", "level1SourceTable", "sourceTableId", "sourceTable", "Source_Table"],
-      sourceRow: ["level1SourceRowId", "level1SourceId", "sourceRowId", "sourceId", "masterRowId", "Source_Record_ID"],
-      sourceStartCol: ["level1StartColId", "level1SourceStartCol", "sourceStartColId", "sourceStartCol", "Source_Start_Col"],
-      sourceEndCol: ["level1EndColId", "level1SourceEndCol", "sourceEndColId", "sourceEndCol", "Source_End_Col"],
-      sourceProgressCol: ["level1ProgressColId", "level1SourceProgressCol", "sourceProgressColId", "sourceProgressCol", "Source_Progress_Col"]
+      name: ["level1Name"],
+      start: ["level1Start"],
+      end: ["level1End"],
+      status: ["level1Status"],
+      responsible: ["level1Responsible"],
+      progress: ["level1Progress"],
+      sourceTable: ["level1SourceTableId"],
+      sourceRow: ["level1SourceRowId"],
+      sourceStartCol: ["level1StartColId"],
+      sourceEndCol: ["level1EndColId"],
+      sourceProgressCol: ["level1ProgressColId"]
     },
     2: {
-      name: ["level2Name", "child"],
-      start: ["level2Start", "start"],
-      end: ["level2End", "end"],
-      status: ["level2Status", "status"],
-      responsible: ["level2Responsible", "respChild", "responsible"],
-      progress: ["level2Progress", "progress", "avance", "avancement"],
-      sourceTable: ["level2SourceTableId", "level2SourceTable", "sourceTableId", "sourceTable", "Source_Table"],
-      sourceRow: ["level2SourceRowId", "level2SourceId", "sourceRowId", "sourceId", "masterRowId", "Source_Record_ID"],
-      sourceStartCol: ["level2StartColId", "level2SourceStartCol", "sourceStartColId", "sourceStartCol", "Source_Start_Col"],
-      sourceEndCol: ["level2EndColId", "level2SourceEndCol", "sourceEndColId", "sourceEndCol", "Source_End_Col"],
-      sourceProgressCol: ["level2ProgressColId", "level2SourceProgressCol", "sourceProgressColId", "sourceProgressCol", "Source_Progress_Col"]
+      name: ["level2Name"],
+      start: ["level2Start"],
+      end: ["level2End"],
+      status: ["level2Status"],
+      responsible: ["level2Responsible"],
+      progress: ["level2Progress"],
+      sourceTable: ["level2SourceTableId"],
+      sourceRow: ["level2SourceRowId"],
+      sourceStartCol: ["level2StartColId"],
+      sourceEndCol: ["level2EndColId"],
+      sourceProgressCol: ["level2ProgressColId"]
     },
     3: {
-      name: ["level3Name", "subTask", "subtask"],
-      start: ["level3Start", "start"],
-      end: ["level3End", "end"],
-      status: ["level3Status", "status"],
-      responsible: ["level3Responsible", "respChild", "responsible"],
-      progress: ["level3Progress", "progress", "avance", "avancement"],
-      sourceTable: ["level3SourceTableId", "level3SourceTable", "sourceTableId", "sourceTable", "Source_Table"],
-      sourceRow: ["level3SourceRowId", "level3SourceId", "sourceRowId", "sourceId", "masterRowId", "Source_Record_ID"],
-      sourceStartCol: ["level3StartColId", "level3SourceStartCol", "sourceStartColId", "sourceStartCol", "Source_Start_Col"],
-      sourceEndCol: ["level3EndColId", "level3SourceEndCol", "sourceEndColId", "sourceEndCol", "Source_End_Col"],
-      sourceProgressCol: ["level3ProgressColId", "level3SourceProgressCol", "sourceProgressColId", "sourceProgressCol", "Source_Progress_Col"]
+      name: ["level3Name"],
+      start: ["level3Start"],
+      end: ["level3End"],
+      status: ["level3Status"],
+      responsible: ["level3Responsible"],
+      progress: ["level3Progress"],
+      sourceTable: ["level3SourceTableId"],
+      sourceRow: ["level3SourceRowId"],
+      sourceStartCol: ["level3StartColId"],
+      sourceEndCol: ["level3EndColId"],
+      sourceProgressCol: ["level3ProgressColId"]
     }
   };
 
@@ -491,16 +491,10 @@
   function buildLogicalRecords(records) {
     const nodes = new Map();
     const roots = [];
-    const selectorAliases = ["selector", "include", "visible"];
-    const orderAliases = ["order", "sort", "rank"];
-
     for (const [idx, raw] of (records || []).entries()) {
       if (!raw) continue;
       const mapped = grist.mapColumnNames(raw, { mappings: latestMappings });
       if (!mapped) continue;
-
-      const selectorRaw = String(mappedValue(mapped, selectorAliases) || "").trim().toUpperCase();
-      if (selectorRaw && !["O", "Y", "YES", "1", "TRUE", "VRAI"].includes(selectorRaw)) continue;
 
       const displayRowId = raw.id || raw.Id || raw.ID;
       let parentId = null;
@@ -559,7 +553,6 @@
           status: String(mappedValue(mapped, cfg.status) || ""),
           responsible: String(mappedValue(mapped, cfg.responsible) || ""),
           progress: parseProgress(mappedValue(mapped, cfg.progress)),
-          order: Number(mappedValue(mapped, orderAliases)) || null,
           source,
           fallbackAliases: { start: cfg.start[0], end: cfg.end[0], progress: cfg.progress[0] }
         });
@@ -1405,27 +1398,6 @@
       { name: "level3StartColId", title: "Niveau 3 — colonne début source", optional: true },
       { name: "level3EndColId", title: "Niveau 3 — colonne fin source", optional: true },
       { name: "level3ProgressColId", title: "Niveau 3 — colonne avancement source", optional: true },
-
-      { name: "selector", title: "Sélecteur O/N", optional: true },
-      { name: "order", title: "Ordre d’affichage", optional: true },
-
-      { name: "parent", title: "Compatibilité — parent / niveau 1", optional: true },
-      { name: "child", title: "Compatibilité — enfant / niveau 2", optional: true },
-      { name: "start", title: "Compatibilité — début", optional: true, type: "Date,DateTime" },
-      { name: "end", title: "Compatibilité — fin", optional: true, type: "Date,DateTime" },
-      { name: "status", title: "Compatibilité — statut", optional: true },
-      { name: "respChild", title: "Compatibilité — responsable", optional: true },
-      { name: "progress", title: "Compatibilité — avancement", optional: true },
-      { name: "sourceTableId", title: "Compatibilité — table source", optional: true },
-      { name: "sourceRowId", title: "Compatibilité — id source", optional: true },
-      { name: "sourceStartColId", title: "Compatibilité — colonne début source", optional: true },
-      { name: "sourceEndColId", title: "Compatibilité — colonne fin source", optional: true },
-      { name: "sourceProgressColId", title: "Compatibilité — colonne avancement source", optional: true },
-      { name: "Source_Table", title: "Compatibilité exemple — table source", optional: true },
-      { name: "Source_Record_ID", title: "Compatibilité exemple — id source", optional: true },
-      { name: "Source_Start_Col", title: "Compatibilité exemple — colonne début", optional: true },
-      { name: "Source_End_Col", title: "Compatibilité exemple — colonne fin", optional: true },
-      { name: "Source_Progress_Col", title: "Compatibilité exemple — colonne avancement", optional: true }
     ]
   });
 
